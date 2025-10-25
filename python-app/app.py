@@ -160,14 +160,14 @@ def _normalize_text(s: str) -> str:
 
 
 def _find_rects_for_text(page, quote: str):
-    """Find precise rectangles for a quote on a PDF page.
+    """Find precise rectangles for a quote on a PDF page with very robust matching.
     Strategy order:
     1) Exact phrase (case-insensitive, de-hyphenate)
     2) Normalized phrase
-    3) Shorter word-based snippets (from the start of the quote)
+    3) Shorter word-based snippets (15, 10, 6, 4, 3, 2 words)
+    4) Individual important words (longer than 5 chars)
 
-    Returns a list of fitz.Rect covering only the matched spans, without merging
-    into a single large block.
+    Returns a list of fitz.Rect covering only the matched spans.
     """
     if not quote or len(quote) < 5:
         return []
@@ -193,14 +193,25 @@ def _find_rects_for_text(page, quote: str):
         except Exception:
             pass
 
-    # 3) Word-based snippets from the start of the quote
+    # 3) Word-based snippets - try progressively shorter phrases
     words = quote.split()
-    for wlen in [min(15, len(words)), min(10, len(words)), min(6, len(words))]:
+    for wlen in [min(15, len(words)), min(10, len(words)), min(6, len(words)), 
+                 min(4, len(words)), min(3, len(words)), min(2, len(words))]:
         if wlen <= 0:
             continue
         snippet = " ".join(words[:wlen])
         try:
             rects = page.search_for(snippet, flags=flags)
+            if rects:
+                return rects
+        except Exception:
+            continue
+
+    # 4) Try individual significant words (last resort)
+    significant_words = [w for w in words if len(w) > 5]
+    for word in significant_words[:3]:  # Try first 3 significant words
+        try:
+            rects = page.search_for(word, flags=flags)
             if rects:
                 return rects
         except Exception:
