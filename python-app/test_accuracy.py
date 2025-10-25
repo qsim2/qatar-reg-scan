@@ -9,10 +9,12 @@ from typing import Dict, List, Tuple
 from collections import defaultdict
 from openai import OpenAI
 
-# Import functions from main app
-from app import evaluate_compliance, generate_suggestions, map_resources
+# Import functions from compliance engine (independent of Streamlit)
+from compliance_engine import evaluate_compliance, generate_suggestions, map_resources
+import os
 
-client = OpenAI(api_key="")  # Set via environment or secrets
+# API key for testing - set via environment variable
+API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 
 def load_ground_truth(filepath: str) -> Dict:
@@ -148,13 +150,13 @@ def run_test_case(test_case: Dict) -> Dict:
     
     # Run AI evaluation
     print("Running AI evaluation...")
-    evaluation_result = evaluate_compliance(business_plan, compliance_policy, legal_structure)
+    evaluation_result = evaluate_compliance(business_plan, compliance_policy, legal_structure, API_KEY)
     
     # Generate suggestions for partial items
     print("Generating suggestions...")
     for req in evaluation_result["requirements"]:
         if req["status"] == "partial":
-            req["suggestion"] = generate_suggestions(req)
+            req["suggestion"] = generate_suggestions(req, API_KEY)
             req["resources"] = map_resources(req["id"])
         elif req["status"] == "missing":
             req["resources"] = map_resources(req["id"])
