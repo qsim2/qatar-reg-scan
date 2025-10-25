@@ -159,17 +159,55 @@ def _normalize_text(s: str) -> str:
         return s or ""
 
 
-def _find_rects_for_text(page, quote: str):
-    """Find precise rectangles for a quote on a PDF page with conservative matching.
-    Strategy order:
+def _find_rect_for_text(page, quote: str):
+    """Robustly locate a quote on a PDF page and return a well-fitted rect.
+    Strategy:
     1) Exact phrase (case-insensitive, de-hyphenate)
     2) Normalized phrase
-    3) Word-based snippets (15, 10, 8, 6 words minimum)
-
-    Returns a list of fitz.Rect covering only the matched spans.
+    3) Shorter word-based snippets (from the start of the quote)
+    
+    When multiple rectangles are returned, we group nearby lines and pick the
+    largest contiguous group to avoid over-wide, misaligned highlights (common
+    in multi-column layouts).
     """
     if not quote or len(quote) < 5:
-        return []
+        return None
+
+    def _merge_and_choose(rects):
+        """Group close-by rects vertically and choose the largest contiguous group."""
+        if not rects:
+            return None
+        try:
+            rects_sorted = sorted(rects, key=lambda r: (r.y0, r.x0))
+            y_thresh = 6  # pts: treat rectangles within this vertical gap as same block
+            groups = []
+            current = [rects_sorted[0]]
+            for r in rects_sorted[1:]:
+                prev = current[-1]
+                if r.y0 <= prev.y1 + y_thresh:
+                    current.append(r)
+                else:
+                    groups.append(current)
+                    current = [r]
+            groups.append(current)
+
+            merged = []
+            for g in groups:
+                x0 = min(rr.x0 for rr in g)
+                y0 = min(rr.y0 for rr in g)
+                x1 = max(rr.x1 for rr in g)
+                y1 = max(rr.y1 for rr in g)
+                merged.append(fitz.Rect(x0, y0, x1, y1))
+
+            # Choose the largest area block which usually best fits the phrase
+            def area(R):
+                return (R.x1 - R.x0) * (R.y1 - R.y0)
+
+            best = max(merged, key=area)
+            return best
+        except Exception:
+            # Fallback: first rect
+            return rects[0]
 
     # Prepare robust search flags
     flags = getattr(fitz, "TEXT_IGNORECASE", 0) | getattr(fitz, "TEXT_DEHYPHENATE", 0)
@@ -178,7 +216,7 @@ def _find_rects_for_text(page, quote: str):
     try:
         rects = page.search_for(quote, flags=flags)
         if rects:
-            return rects
+            return _merge_and_choose(rects)
     except Exception:
         pass
 
@@ -188,24 +226,24 @@ def _find_rects_for_text(page, quote: str):
         try:
             rects = page.search_for(norm, flags=flags)
             if rects:
-                return rects
+                return _merge_and_choose(rects)
         except Exception:
             pass
 
-    # 3) Word-based snippets - only try substantial phrases (6+ words minimum)
+    # 3) Word-based snippets from the start of the quote
     words = quote.split()
-    for wlen in [min(15, len(words)), min(10, len(words)), min(8, len(words)), min(6, len(words))]:
-        if wlen < 6:  # Don't search for snippets shorter than 6 words
+    for wlen in [min(15, len(words)), min(10, len(words)), min(6, len(words))]:
+        if wlen <= 0:
             continue
         snippet = " ".join(words[:wlen])
         try:
             rects = page.search_for(snippet, flags=flags)
             if rects:
-                return rects
+                return _merge_and_choose(rects)
         except Exception:
             continue
 
-    return []
+    return None
 
 
 def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_category: str) -> bytes:
@@ -251,30 +289,36 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
 
             found = False
 
-            # First attempt: search using the key_quote with robust matching (only if meaningful)
-            if key_quote and len(key_quote.split()) >= 3:
+            # First attempt: search using the key_quote with robust matching
+            if key_quote:
                 for page_num in range(pdf_document.page_count):
                     page = pdf_document[page_num]
-                    rects = _find_rects_for_text(page, key_quote)
-                    # Filter out header/title regions and very large text (likely headings) for policy docs
-                    filtered = []
-                    for r in rects:
-                        if doc_category == "compliance_policy":
-                            if r.y0 <= 120 or (r.y1 - r.y0) >= 28:
-                                continue
-                        filtered.append(r)
-                    if filtered:
-                        for r in filtered:
-                            hl = page.add_highlight_annot(r)
-                            hl.set_colors(stroke=color)  # highlight uses stroke color
-                            hl.set_info(content=comment)
-                            hl.update()
+                    rect = _find_rect_for_text(page, key_quote)
+                    if rect:
+                        highlight = page.add_highlight_annot(rect)
+                        highlight.set_colors(stroke=color)  # highlight uses stroke color
+                        highlight.set_info(content=comment)
+                        highlight.update()
                         found = True
                         break
 
-            # Second attempt: disabled to avoid false positives from generic terms
+            # Second attempt: try fallback phrases based on requirement id
             if not found:
-                pass
+                phrases = fallback_phrases.get(req.get("id", ""), [])
+                for page_num in range(pdf_document.page_count):
+                    page = pdf_document[page_num]
+                    hit = None
+                    for phrase in phrases:
+                        hit = _find_rect_for_text(page, phrase)
+                        if hit:
+                            break
+                    if hit:
+                        highlight = page.add_highlight_annot(hit)
+                        highlight.set_colors(stroke=color)
+                        highlight.set_info(content=comment)
+                        highlight.update()
+                        found = True
+                        break
 
             # Final fallback: drop a sticky note on the first page so the user still sees the finding
             if not found and pdf_document.page_count > 0:
@@ -502,7 +546,7 @@ def main():
     if st.session_state.results:
         # Display score
         score = st.session_state.results['score']
-        score_color = "🟢" if score >= 70 else "🟡" if score >= 40 else "🔴"
+        score_color = "🟢" if score >= 85 else "🟡" if score >= 40 else "🔴"
         st.metric("Overall Readiness Score", f"{score}%", delta=f"{score_color}")
         
         st.divider()
