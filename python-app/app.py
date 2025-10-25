@@ -251,13 +251,20 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
 
             found = False
 
-            # First attempt: search using the key_quote with robust matching
-            if key_quote:
+            # First attempt: search using the key_quote with robust matching (only if meaningful)
+            if key_quote and len(key_quote.split()) >= 6:
                 for page_num in range(pdf_document.page_count):
                     page = pdf_document[page_num]
                     rects = _find_rects_for_text(page, key_quote)
-                    if rects:
-                        for r in rects:
+                    # Filter out header/title regions and very large text (likely headings) for policy docs
+                    filtered = []
+                    for r in rects:
+                        if doc_category == "compliance_policy":
+                            if r.y0 <= 120 or (r.y1 - r.y0) >= 28:
+                                continue
+                        filtered.append(r)
+                    if filtered:
+                        for r in filtered:
                             hl = page.add_highlight_annot(r)
                             hl.set_colors(stroke=color)  # highlight uses stroke color
                             hl.set_info(content=comment)
@@ -265,24 +272,9 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
                         found = True
                         break
 
-            # Second attempt: try fallback phrases based on requirement id
+            # Second attempt: disabled to avoid false positives from generic terms
             if not found:
-                phrases = fallback_phrases.get(req.get("id", ""), [])
-                for page_num in range(pdf_document.page_count):
-                    page = pdf_document[page_num]
-                    hit_rects = []
-                    for phrase in phrases:
-                        hit_rects = _find_rects_for_text(page, phrase)
-                        if hit_rects:
-                            break
-                    if hit_rects:
-                        for r in hit_rects:
-                            hl = page.add_highlight_annot(r)
-                            hl.set_colors(stroke=color)
-                            hl.set_info(content=comment)
-                            hl.update()
-                        found = True
-                        break
+                pass
 
             # Final fallback: drop a sticky note on the first page so the user still sees the finding
             if not found and pdf_document.page_count > 0:
