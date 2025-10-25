@@ -5,38 +5,84 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// QCB Licensing Requirements
+// QCB Licensing Requirements with Categories
 const QCB_REQUIREMENTS = [
   {
+    id: "capital_adequacy",
     category: "Capital Adequacy",
     requirement: "Minimum Capital Requirements",
     description: "QCB requires minimum paid-up capital of QAR 5 million for payment service providers and QAR 10 million for other financial institutions.",
+    input_category: "business_model"
   },
   {
-    category: "AML/CFT Compliance",
-    requirement: "Anti-Money Laundering & Counter-Terrorism Financing",
-    description: "Comprehensive AML/CFT policies, procedures, and systems including customer due diligence, transaction monitoring, and suspicious activity reporting.",
-  },
-  {
-    category: "IT Security & Infrastructure",
-    requirement: "Information Technology and Cybersecurity",
-    description: "Robust IT infrastructure with cybersecurity measures, data protection, disaster recovery, and business continuity plans meeting QCB standards.",
-  },
-  {
+    id: "governance",
     category: "Governance",
     requirement: "Fit and Proper Requirements",
     description: "Board members and senior management must meet fit and proper criteria with appropriate qualifications, experience, and integrity.",
+    input_category: "business_model"
   },
   {
+    id: "aml_policy",
+    category: "AML/CFT Compliance",
+    requirement: "Anti-Money Laundering Policies",
+    description: "Comprehensive AML/CFT policies including customer due diligence, transaction monitoring, and suspicious activity reporting.",
+    input_category: "aml_security"
+  },
+  {
+    id: "data_protection",
+    category: "Data Security",
+    requirement: "Data Protection and Privacy",
+    description: "Robust data protection measures including PII handling, third-party data sharing protocols, and access controls meeting QCB standards.",
+    input_category: "aml_security"
+  },
+  {
+    id: "it_infrastructure",
+    category: "IT Security & Infrastructure",
+    requirement: "Information Technology and Cybersecurity",
+    description: "Secure IT infrastructure with cybersecurity measures, data localization (preferably in Qatar), and restricted access controls.",
+    input_category: "tech_operations"
+  },
+  {
+    id: "business_continuity",
     category: "Business Continuity",
-    requirement: "Business Continuity & Disaster Recovery Plans",
-    description: "Documented business continuity management framework with tested disaster recovery procedures and crisis management protocols.",
+    requirement: "Disaster Recovery & Business Continuity Plans",
+    description: "Documented business continuity management framework with tested disaster recovery procedures, RTOs, and crisis management protocols.",
+    input_category: "tech_operations"
+  },
+];
+
+// Resource Mapping Data
+const RESOURCE_MAPPING = [
+  {
+    name: "Qatar FinTech Hub Compliance Advisory",
+    type: "Government Program",
+    contact: "compliance@qfh.gov.qa",
+    linked_rule_ids: ["aml_policy", "governance"]
   },
   {
-    category: "Operational Controls",
-    requirement: "Risk Management Framework",
-    description: "Comprehensive risk management framework covering operational, financial, compliance, and strategic risks with clear policies and controls.",
+    name: "Doha Cybersecurity & Data Privacy Consultancy",
+    type: "Private Consultant",
+    contact: "+974 4000 1234",
+    linked_rule_ids: ["data_protection", "it_infrastructure"]
   },
+  {
+    name: "Qatar Central Bank - FinTech Support Unit",
+    type: "Regulatory Authority",
+    contact: "fintech@qcb.gov.qa",
+    linked_rule_ids: ["capital_adequacy", "governance", "aml_policy"]
+  },
+  {
+    name: "Gulf Region DR & Business Continuity Services",
+    type: "Technical Service Provider",
+    contact: "info@gulfdr.com",
+    linked_rule_ids: ["business_continuity", "it_infrastructure"]
+  },
+  {
+    name: "Lusail Legal & Compliance Partners",
+    type: "Law Firm",
+    contact: "+974 4000 5678",
+    linked_rule_ids: ["aml_policy", "data_protection"]
+  }
 ];
 
 Deno.serve(async (req) => {
@@ -45,11 +91,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { businessPlan } = await req.json();
+    const { businessModel, amlSecurity, techOperations } = await req.json();
 
-    if (!businessPlan || typeof businessPlan !== "string") {
+    if (!businessModel && !amlSecurity && !techOperations) {
       return new Response(
-        JSON.stringify({ error: "Business plan is required" }),
+        JSON.stringify({ error: "At least one input section is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -63,18 +109,30 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Create the analysis prompt
-    const systemPrompt = `You are an expert regulatory compliance analyst specializing in Qatar Central Bank (QCB) FinTech licensing requirements. 
+    // STAGE 1: Evaluation - Analyze all requirements
+    const evaluationSystemPrompt = `You are an expert regulatory compliance analyst specializing in Qatar Central Bank (QCB) FinTech licensing requirements. 
 
-Analyze the provided business plan against the following QCB requirements:
-${QCB_REQUIREMENTS.map((req, i) => `${i + 1}. ${req.category}: ${req.requirement}\n   ${req.description}`).join("\n\n")}
+Analyze the provided documentation against these QCB requirements:
+${QCB_REQUIREMENTS.map((req, i) => `${i + 1}. [ID: ${req.id}] ${req.category}: ${req.requirement}\n   ${req.description}\n   Input Category: ${req.input_category}`).join("\n\n")}
 
-Provide a detailed assessment of compliance for each requirement.`;
+Evaluate each requirement and classify as:
+- "compliant": Fully meets the requirement with comprehensive evidence
+- "partial": Partially meets the requirement but lacks detail or completeness
+- "missing": Does not address the requirement or fundamentally absent`;
 
-    const userPrompt = `Analyze this FinTech startup business plan for QCB licensing compliance:\n\n${businessPlan}`;
+    const evaluationUserPrompt = `Analyze this FinTech startup documentation for QCB licensing compliance:
 
-    // Call Lovable AI with tool calling for structured output
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+BUSINESS MODEL & CORPORATE GOVERNANCE:
+${businessModel || "Not provided"}
+
+AML/CFT & SECURITY POLICIES:
+${amlSecurity || "Not provided"}
+
+TECHNOLOGY & OPERATIONS PLAN:
+${techOperations || "Not provided"}`;
+
+    // First AI call for evaluation
+    const evaluationResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${LOVABLE_API_KEY}`,
@@ -83,15 +141,15 @@ Provide a detailed assessment of compliance for each requirement.`;
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          { role: "system", content: evaluationSystemPrompt },
+          { role: "user", content: evaluationUserPrompt },
         ],
         tools: [
           {
             type: "function",
             function: {
-              name: "analyze_compliance",
-              description: "Analyze QCB regulatory compliance and provide structured assessment",
+              name: "evaluate_compliance",
+              description: "Evaluate QCB regulatory compliance and classify each requirement",
               parameters: {
                 type: "object",
                 properties: {
@@ -104,6 +162,7 @@ Provide a detailed assessment of compliance for each requirement.`;
                     items: {
                       type: "object",
                       properties: {
+                        id: { type: "string" },
                         category: { type: "string" },
                         requirement: { type: "string" },
                         status: {
@@ -112,13 +171,13 @@ Provide a detailed assessment of compliance for each requirement.`;
                         },
                         details: { type: "string" },
                       },
-                      required: ["category", "requirement", "status", "details"],
+                      required: ["id", "category", "requirement", "status", "details"],
                     },
                   },
                   recommendations: {
                     type: "array",
                     items: { type: "string" },
-                    description: "3-5 actionable recommendations to improve compliance",
+                    description: "3-5 general actionable recommendations to improve compliance",
                   },
                 },
                 required: ["overall_score", "requirements", "recommendations"],
@@ -126,47 +185,103 @@ Provide a detailed assessment of compliance for each requirement.`;
             },
           },
         ],
-        tool_choice: { type: "function", function: { name: "analyze_compliance" } },
+        tool_choice: { type: "function", function: { name: "evaluate_compliance" } },
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
+    if (!evaluationResponse.ok) {
+      const errorText = await evaluationResponse.text();
+      console.error("AI Gateway error (evaluation):", evaluationResponse.status, errorText);
       
-      if (response.status === 429) {
+      if (evaluationResponse.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       
-      if (response.status === 402) {
+      if (evaluationResponse.status === 402) {
         return new Response(
           JSON.stringify({ error: "AI service credits exhausted. Please add credits." }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      throw new Error(`AI Gateway error: ${response.status}`);
+      throw new Error(`AI Gateway error: ${evaluationResponse.status}`);
     }
 
-    const aiResponse = await response.json();
-    console.log("AI Response:", JSON.stringify(aiResponse, null, 2));
+    const evaluationData = await evaluationResponse.json();
+    console.log("Evaluation Response:", JSON.stringify(evaluationData, null, 2));
 
-    // Extract the tool call result
-    const toolCall = aiResponse.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) {
-      throw new Error("No tool call in AI response");
+    const evaluationToolCall = evaluationData.choices?.[0]?.message?.tool_calls?.[0];
+    if (!evaluationToolCall) {
+      throw new Error("No tool call in evaluation response");
     }
 
-    const analysisResult = JSON.parse(toolCall.function.arguments);
+    const evaluationResult = JSON.parse(evaluationToolCall.function.arguments);
+
+    // STAGE 2: Suggestions - Generate suggestions for "partial" items only
+    const partialRequirements = evaluationResult.requirements.filter((req: any) => req.status === "partial");
+    
+    const requirementsWithSuggestions = await Promise.all(
+      evaluationResult.requirements.map(async (req: any) => {
+        if (req.status !== "partial") {
+          return req;
+        }
+
+        // Generate AI suggestion for this partial requirement
+        const suggestionPrompt = `You are a regulatory compliance advisor. A FinTech startup has PARTIALLY met this QCB requirement:
+
+Requirement: ${req.requirement}
+Category: ${req.category}
+Current Status: ${req.details}
+
+Provide a concise, actionable suggestion (2-3 sentences) on how they can improve their documentation to fully meet this requirement.`;
+
+        try {
+          const suggestionResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash",
+              messages: [
+                { role: "user", content: suggestionPrompt }
+              ],
+            }),
+          });
+
+          if (suggestionResponse.ok) {
+            const suggestionData = await suggestionResponse.json();
+            const suggestion = suggestionData.choices?.[0]?.message?.content || "";
+            return { ...req, suggestion };
+          }
+        } catch (err) {
+          console.error(`Failed to generate suggestion for ${req.id}:`, err);
+        }
+
+        return req;
+      })
+    );
+
+    // Map resources to requirements
+    const finalRequirements = requirementsWithSuggestions.map((req: any) => {
+      if (req.status === "partial" || req.status === "missing") {
+        const matchedResources = RESOURCE_MAPPING.filter(resource => 
+          resource.linked_rule_ids.includes(req.id)
+        );
+        return { ...req, resources: matchedResources };
+      }
+      return req;
+    });
 
     return new Response(
       JSON.stringify({
-        score: analysisResult.overall_score,
-        requirements: analysisResult.requirements,
-        recommendations: analysisResult.recommendations,
+        score: evaluationResult.overall_score,
+        requirements: finalRequirements,
+        recommendations: evaluationResult.recommendations,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

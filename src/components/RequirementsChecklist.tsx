@@ -8,6 +8,12 @@ export interface RequirementItem {
   requirement: string;
   status: "compliant" | "partial" | "missing";
   details: string;
+  suggestion?: string;
+  resources?: Array<{
+    name: string;
+    type: string;
+    contact: string;
+  }>;
 }
 
 interface RequirementsChecklistProps {
@@ -75,7 +81,30 @@ export const RequirementsChecklist = ({ requirements }: RequirementsChecklistPro
                       </div>
                       {getStatusBadge(item.status)}
                     </div>
-                    <p className="text-sm text-muted-foreground">{item.details}</p>
+                     <p className="text-sm text-muted-foreground">{item.details}</p>
+                    
+                    {/* AI Suggestion for Partial items */}
+                    {item.status === "partial" && item.suggestion && (
+                      <div className="mt-3 p-3 rounded-md bg-warning/10 border border-warning/20">
+                        <p className="text-xs font-semibold text-warning mb-1">💡 AI Suggestion:</p>
+                        <p className="text-xs text-muted-foreground">{item.suggestion}</p>
+                      </div>
+                    )}
+
+                    {/* Resources for Partial or Missing items */}
+                    {(item.status === "partial" || item.status === "missing") && item.resources && item.resources.length > 0 && (
+                      <div className="mt-3 p-3 rounded-md bg-primary/5 border border-primary/10">
+                        <p className="text-xs font-semibold text-primary mb-2">🔗 Recommended Resources:</p>
+                        <div className="space-y-2">
+                          {item.resources.map((resource, idx) => (
+                            <div key={idx} className="text-xs">
+                              <p className="font-medium text-foreground">{resource.name}</p>
+                              <p className="text-muted-foreground">{resource.type} • {resource.contact}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
