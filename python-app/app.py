@@ -160,58 +160,88 @@ def _normalize_text(s: str) -> str:
 
 
 def _find_rect_for_text(page, quote: str):
-    """Try multiple strategies to locate a quote on a PDF page and return merged rect."""
+    """Robustly locate a quote on a PDF page and return a well-fitted rect.
+    Strategy:
+    1) Exact phrase (case-insensitive, de-hyphenate)
+    2) Normalized phrase
+    3) Shorter word-based snippets (from the start of the quote)
+
+    When multiple rectangles are returned, we group nearby lines and pick the
+    largest contiguous group to avoid over-wide, misaligned highlights (common
+    in multi-column layouts).
+    """
     if not quote or len(quote) < 5:
         return None
 
-    # Try exact match first (case-insensitive)
-    try:
-        rects = page.search_for(quote, flags=fitz.TEXT_DEHYPHENATE)
-        if rects:
-            # Merge all rectangles if multi-line
-            if len(rects) > 1:
-                x0 = min(r.x0 for r in rects)
-                y0 = min(r.y0 for r in rects)
-                x1 = max(r.x1 for r in rects)
-                y1 = max(r.y1 for r in rects)
-                return fitz.Rect(x0, y0, x1, y1)
+    def _merge_and_choose(rects):
+        """Group close-by rects vertically and choose the largest contiguous group."""
+        if not rects:
+            return None
+        try:
+            rects_sorted = sorted(rects, key=lambda r: (r.y0, r.x0))
+            y_thresh = 6  # pts: treat rectangles within this vertical gap as same block
+            groups = []
+            current = [rects_sorted[0]]
+            for r in rects_sorted[1:]:
+                prev = current[-1]
+                if r.y0 <= prev.y1 + y_thresh:
+                    current.append(r)
+                else:
+                    groups.append(current)
+                    current = [r]
+            groups.append(current)
+
+            merged = []
+            for g in groups:
+                x0 = min(rr.x0 for rr in g)
+                y0 = min(rr.y0 for rr in g)
+                x1 = max(rr.x1 for rr in g)
+                y1 = max(rr.y1 for rr in g)
+                merged.append(fitz.Rect(x0, y0, x1, y1))
+
+            # Choose the largest area block which usually best fits the phrase
+            def area(R):
+                return (R.x1 - R.x0) * (R.y1 - R.y0)
+
+            best = max(merged, key=area)
+            return best
+        except Exception:
+            # Fallback: first rect
             return rects[0]
+
+    # Prepare robust search flags
+    flags = getattr(fitz, "TEXT_IGNORECASE", 0) | getattr(fitz, "TEXT_DEHYPHENATE", 0)
+
+    # 1) Exact phrase
+    try:
+        rects = page.search_for(quote, flags=flags)
+        if rects:
+            return _merge_and_choose(rects)
     except Exception:
         pass
 
-    # Try normalized version
+    # 2) Normalized phrase
     norm = _normalize_text(quote)
     if norm and len(norm) >= 10:
         try:
-            rects = page.search_for(norm, flags=fitz.TEXT_DEHYPHENATE)
+            rects = page.search_for(norm, flags=flags)
             if rects:
-                if len(rects) > 1:
-                    x0 = min(r.x0 for r in rects)
-                    y0 = min(r.y0 for r in rects)
-                    x1 = max(r.x1 for r in rects)
-                    y1 = max(r.y1 for r in rects)
-                    return fitz.Rect(x0, y0, x1, y1)
-                return rects[0]
+                return _merge_and_choose(rects)
         except Exception:
             pass
 
-    # Try word-based snippets from the start
+    # 3) Word-based snippets from the start of the quote
     words = quote.split()
     for wlen in [min(15, len(words)), min(10, len(words)), min(6, len(words))]:
-        if wlen > 0:
-            snippet = " ".join(words[:wlen])
-            try:
-                rects = page.search_for(snippet, flags=fitz.TEXT_DEHYPHENATE)
-                if rects:
-                    if len(rects) > 1:
-                        x0 = min(r.x0 for r in rects)
-                        y0 = min(r.y0 for r in rects)
-                        x1 = max(r.x1 for r in rects)
-                        y1 = max(r.y1 for r in rects)
-                        return fitz.Rect(x0, y0, x1, y1)
-                    return rects[0]
-            except Exception:
-                continue
+        if wlen <= 0:
+            continue
+        snippet = " ".join(words[:wlen])
+        try:
+            rects = page.search_for(snippet, flags=flags)
+            if rects:
+                return _merge_and_choose(rects)
+        except Exception:
+            continue
 
     return None
 
