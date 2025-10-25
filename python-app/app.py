@@ -29,25 +29,27 @@ with open("resource_mapping_data.json", "r") as f:
 # Category mapping for documents - maps document types to requirement IDs
 CATEGORY_MAP = {
     "business_plan": [
-        "licensing_category", 
-        "minimum_capital_psp", 
-        "minimum_capital_p2p", 
-        "minimum_capital_wealth", 
-        "annual_audit"
+        "licensing_category",
+        "minimum_capital_psp",
+        "minimum_capital_p2p",
+        "minimum_capital_wealth",
+        "annual_audit",
+        "data_residency",  # Hosting/infra statements often appear in the business plan
+        "data_consent"     # Some data governance statements may be in the plan
     ],
     "compliance_policy": [
-        "cdd_enhanced", 
-        "source_of_funds", 
-        "kyc_documentation", 
-        "aml_policy", 
-        "transaction_monitoring", 
-        "str_reporting", 
-        "data_consent", 
+        "cdd_enhanced",
+        "source_of_funds",
+        "kyc_documentation",
+        "aml_policy",
+        "transaction_monitoring",
+        "str_reporting",
+        "data_consent",
         "compliance_officer"
     ],
     "legal_structure": [
-        "key_personnel", 
-        "corporate_structure", 
+        "key_personnel",
+        "corporate_structure",
         "data_residency"
     ]
 }
