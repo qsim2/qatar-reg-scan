@@ -26,11 +26,30 @@ with open("requirements.json", "r") as f:
 with open("resource_mapping_data.json", "r") as f:
     RESOURCE_MAPPING = json.load(f)
 
-# Category mapping for documents
+# Category mapping for documents - maps document types to requirement IDs
 CATEGORY_MAP = {
-    "business_plan": ["licensing_category", "minimum_capital", "business_continuity"],
-    "compliance_policy": ["aml_policy", "compliance_officer", "cdd_procedures", "transaction_monitoring", "sar_filing"],
-    "legal_structure": ["key_personnel", "corporate_structure", "data_residency"]
+    "business_plan": [
+        "licensing_category", 
+        "minimum_capital_psp", 
+        "minimum_capital_p2p", 
+        "minimum_capital_wealth", 
+        "annual_audit"
+    ],
+    "compliance_policy": [
+        "cdd_enhanced", 
+        "source_of_funds", 
+        "kyc_documentation", 
+        "aml_policy", 
+        "transaction_monitoring", 
+        "str_reporting", 
+        "data_consent", 
+        "compliance_officer"
+    ],
+    "legal_structure": [
+        "key_personnel", 
+        "corporate_structure", 
+        "data_residency"
+    ]
 }
 
 
@@ -63,7 +82,9 @@ Evaluate each requirement and classify as:
 - "partial": Partially meets the requirement but lacks detail or completeness
 - "missing": Does not address the requirement or fundamentally absent
 
-For any "partial" or "missing" status, identify a KEY QUOTE from the source document that best represents what was found (or the closest relevant text).
+IMPORTANT: For each requirement, you MUST specify which document contains the relevant information by setting the "found_in_document" field to one of: "business_plan", "compliance_policy", or "legal_structure".
+
+For any "partial" or "missing" status, identify a KEY QUOTE from the SPECIFIC source document where you found related text (or the closest relevant text if nothing was found).
 
 Documentation to analyze:
 
@@ -86,7 +107,8 @@ Return a JSON object with this structure:
       "requirement": "<requirement_title>",
       "status": "compliant|partial|missing",
       "details": "<your reasoning>",
-      "key_quote": "<exact quote from source document, if non-compliant>"
+      "found_in_document": "business_plan|compliance_policy|legal_structure",
+      "key_quote": "<exact quote from the SPECIFIC source document, if non-compliant>"
     }}
   ],
   "recommendations": ["<general recommendation 1>", "<general recommendation 2>", ...]
@@ -248,12 +270,18 @@ def _find_rect_for_text(page, quote: str):
 
 def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_category: str) -> bytes:
     """Add colored annotations to original PDF based on findings.
-    Tries to highlight key quotes; if not found, drops a sticky note on page 1 as a fallback."""
+    Tries to highlight key quotes; if not found, drops a sticky note on page 1 as a fallback.
+    Only annotates requirements that should be found in THIS specific document."""
     try:
         pdf_document = fitz.open(stream=original_pdf_bytes, filetype="pdf")
 
         # Filter requirements for this document category
-        relevant_reqs = [r for r in requirements if r["id"] in CATEGORY_MAP.get(doc_category, [])]
+        # Only include requirements where the AI found them in this document OR where they're expected to be
+        relevant_reqs = [
+            r for r in requirements 
+            if r["id"] in CATEGORY_MAP.get(doc_category, []) 
+            and r.get("found_in_document", doc_category) == doc_category
+        ]
 
         # Simple fallback phrases by requirement id (used if key_quote can't be located)
         fallback_phrases = {
