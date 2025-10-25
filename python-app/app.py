@@ -319,12 +319,12 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
 
             key_quote = req.get("key_quote", "") or ""
 
-            # Choose color based on status
+            # Choose color based on status - Qatar burgundy theme
             if req.get("status") == "partial":
-                color = (1, 1, 0)  # Yellow
+                color = (0.82, 0.63, 0.22)  # Gold
                 comment = f"⚠️ {req['requirement']}\n\nSuggestion: {req.get('suggestion', 'Needs improvement')}"
             else:  # missing
-                color = (1, 0, 0)  # Red
+                color = (0.54, 0.08, 0.22)  # Qatar Burgundy
                 comment = f"❌ {req['requirement']}\n\nGap: {req.get('details', 'Not provided')}"
 
             found = False
@@ -401,12 +401,12 @@ def generate_summary_pdf(score: int, requirements: List[Dict], recommendations: 
     
     styles = getSampleStyleSheet()
     
-    # Custom styles
+    # Custom styles - Qatar burgundy theme
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Title'],
         fontSize=24,
-        textColor=HexColor('#1a1a4d'),
+        textColor=HexColor('#8B1538'),
         spaceAfter=30
     )
     
@@ -414,7 +414,7 @@ def generate_summary_pdf(score: int, requirements: List[Dict], recommendations: 
         'CustomHeading',
         parent=styles['Heading2'],
         fontSize=14,
-        textColor=HexColor('#1a1a4d'),
+        textColor=HexColor('#8B1538'),
         spaceAfter=12,
         spaceBefore=20
     )
@@ -425,8 +425,8 @@ def generate_summary_pdf(score: int, requirements: List[Dict], recommendations: 
     story.append(Paragraph("QCB Compliance Readiness Report", title_style))
     story.append(Spacer(1, 0.2*inch))
     
-    # Score
-    score_color = HexColor('#22c55e') if score >= 70 else HexColor('#eab308') if score >= 40 else HexColor('#ef4444')
+    # Score - Qatar colors
+    score_color = HexColor('#D4AF37') if score >= 70 else HexColor('#C19A3C') if score >= 40 else HexColor('#8B1538')
     score_style = ParagraphStyle('Score', parent=styles['Normal'], fontSize=18, textColor=score_color, spaceAfter=20)
     story.append(Paragraph(f"Overall Readiness Score: <b>{score}%</b>", score_style))
     story.append(Spacer(1, 0.3*inch))
@@ -446,16 +446,16 @@ def generate_summary_pdf(score: int, requirements: List[Dict], recommendations: 
         story.append(Paragraph(f"<b>{category.replace('_', ' ').title()}</b>", styles['Heading3']))
         
         for req in reqs:
-            # Status symbol
+            # Status symbol - Qatar colors
             if req["status"] == "compliant":
                 symbol = "✅"
-                color = HexColor('#22c55e')
+                color = HexColor('#D4AF37')
             elif req["status"] == "partial":
                 symbol = "⚠️"
-                color = HexColor('#eab308')
+                color = HexColor('#C19A3C')
             else:
                 symbol = "❌"
-                color = HexColor('#ef4444')
+                color = HexColor('#8B1538')
             
             req_style = ParagraphStyle('Req', parent=styles['Normal'], textColor=color, leftIndent=20)
             story.append(Paragraph(f"{symbol} <b>{req['requirement']}</b>", req_style))
@@ -601,10 +601,10 @@ def main():
     
     # Display results if available
     if st.session_state.results:
-        # Display score
+        # Display score with Qatar colors
         score = st.session_state.results['score']
-        score_color = "🟢" if score >= 85 else "🟡" if score >= 40 else "🔴"
-        st.metric("Overall Readiness Score", f"{score}%", delta=f"{score_color}")
+        score_emoji = "🏆" if score >= 85 else "⚡" if score >= 40 else "📋"
+        st.metric("Overall Readiness Score", f"{score}%", delta=f"{score_emoji}")
         
         st.divider()
         
@@ -613,16 +613,20 @@ def main():
         urgent_items = [req for req in requirements if req["status"] == "missing"]
         
         if urgent_items:
-            st.error("🚨 **URGENT: Critical Requirements Missing**")
-            st.markdown(f"**{len(urgent_items)} critical requirement{'s' if len(urgent_items) != 1 else ''} must be addressed immediately:**")
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #8B1538 0%, #A01B47 100%); padding: 20px; border-radius: 10px; margin: 20px 0;">
+                <h3 style="color: #FFFFFF; margin: 0 0 10px 0;">🚨 URGENT: Critical Requirements Missing</h3>
+                <p style="color: #F5F5DC; margin: 0;"><strong>{len(urgent_items)}</strong> critical requirement{'s' if len(urgent_items) != 1 else ''} must be addressed immediately</p>
+            </div>
+            """, unsafe_allow_html=True)
             
             for idx, item in enumerate(urgent_items, 1):
                 with st.container():
                     st.markdown(f"""
-                    <div style="background-color: #fee; border-left: 4px solid #dc2626; padding: 15px; margin: 10px 0; border-radius: 5px;">
-                        <p style="margin: 0; font-weight: bold; color: #dc2626;">⚠️ {item['requirement']}</p>
-                        <p style="margin: 5px 0 0 0; font-size: 0.85em; color: #666; text-transform: uppercase;">{item['category'].replace('_', ' ')}</p>
-                        <p style="margin: 10px 0 0 0; color: #333;">{item['details']}</p>
+                    <div style="background-color: #FFF5F5; border-left: 5px solid #8B1538; padding: 18px; margin: 12px 0; border-radius: 8px; box-shadow: 0 2px 8px rgba(139, 21, 56, 0.15);">
+                        <p style="margin: 0; font-weight: bold; color: #8B1538; font-size: 1.1em;">⚠️ {item['requirement']}</p>
+                        <p style="margin: 8px 0 0 0; font-size: 0.8em; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">{item['category'].replace('_', ' ')}</p>
+                        <p style="margin: 12px 0 0 0; color: #4A4A4A; line-height: 1.5;">{item['details']}</p>
                     </div>
                     """, unsafe_allow_html=True)
             
