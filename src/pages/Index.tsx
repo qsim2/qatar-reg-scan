@@ -4,6 +4,7 @@ import { InputSection } from "@/components/InputSection";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { RequirementsChecklist } from "@/components/RequirementsChecklist";
 import { RecommendationsSection } from "@/components/RecommendationsSection";
+import { UrgentRecommendations } from "@/components/UrgentRecommendations";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Download, Shield, Building2 } from "lucide-react";
@@ -171,6 +172,7 @@ const Index = () => {
                 </div>
               )}
               
+              <UrgentRecommendations requirements={requirements} />
               <RequirementsChecklist requirements={requirements} />
               <RecommendationsSection recommendations={recommendations} />
             </div>
