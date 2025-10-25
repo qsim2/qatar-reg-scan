@@ -590,6 +590,7 @@ def main():
             # Store results in session state
             st.session_state.results = {
                 'score': evaluation_result["overall_score"],
+                'requirements': evaluation_result["requirements"],
                 'annotated_bp': annotated_bp,
                 'annotated_cp': annotated_cp,
                 'annotated_ls': annotated_ls,
@@ -606,6 +607,26 @@ def main():
         st.metric("Overall Readiness Score", f"{score}%", delta=f"{score_color}")
         
         st.divider()
+        
+        # Urgent Recommendations Section
+        requirements = st.session_state.results.get('requirements', [])
+        urgent_items = [req for req in requirements if req["status"] == "missing"]
+        
+        if urgent_items:
+            st.error("🚨 **URGENT: Critical Requirements Missing**")
+            st.markdown(f"**{len(urgent_items)} critical requirement{'s' if len(urgent_items) != 1 else ''} must be addressed immediately:**")
+            
+            for idx, item in enumerate(urgent_items, 1):
+                with st.container():
+                    st.markdown(f"""
+                    <div style="background-color: #fee; border-left: 4px solid #dc2626; padding: 15px; margin: 10px 0; border-radius: 5px;">
+                        <p style="margin: 0; font-weight: bold; color: #dc2626;">⚠️ {item['requirement']}</p>
+                        <p style="margin: 5px 0 0 0; font-size: 0.85em; color: #666; text-transform: uppercase;">{item['category'].replace('_', ' ')}</p>
+                        <p style="margin: 10px 0 0 0; color: #333;">{item['details']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            st.divider()
         
         # Download buttons
         st.subheader("📥 Download Reports")
