@@ -159,12 +159,68 @@ def _normalize_text(s: str) -> str:
         return s or ""
 
 
+def _tokenize_quote(s: str) -> List[str]:
+    """Lowercase, remove punctuation except apostrophes/numbers, split into words."""
+    import re
+    s = (s or "").lower()
+    return re.findall(r"[a-z0-9']+", s)
+
+
+def _find_rects_for_text_by_words(page, quote: str):
+    """Find rects by aligning quote tokens to page word tokens (robust across line breaks).
+    Requires at least 3 words to attempt.
+    """
+    try:
+        q_tokens = _tokenize_quote(quote)
+        if len(q_tokens) < 3:
+            return []
+        raw_words = page.get_text("words") or []
+        # raw_words: [x0, y0, x1, y1, word, block_no, line_no, word_no]
+        word_items = []
+        for w in raw_words:
+            if len(w) < 5:
+                continue
+            tokens = _tokenize_quote(str(w[4]))
+            if not tokens:
+                continue
+            word_items.append({
+                "t": tokens[0],
+                "rect": fitz.Rect(float(w[0]), float(w[1]), float(w[2]), float(w[3]))
+            })
+        if not word_items:
+            return []
+
+        # Try matching windows from largest to smaller for stability
+        max_len = min(len(q_tokens), 12)
+        for wlen in [max_len, 9, 6, 5, 4, 3]:
+            if wlen > len(q_tokens):
+                continue
+            # Slide over the quote tokens too (allow matching any contiguous subsequence)
+            for qs in range(0, len(q_tokens) - wlen + 1):
+                target = q_tokens[qs:qs + wlen]
+                for i in range(0, len(word_items) - wlen + 1):
+                    ok = True
+                    for j in range(wlen):
+                        if word_items[i + j]["t"] != target[j]:
+                            ok = False
+                            break
+                    if ok:
+                        rect = word_items[i]["rect"]
+                        for j in range(1, wlen):
+                            rect = rect | word_items[i + j]["rect"]
+                        return [rect]
+    except Exception:
+        return []
+    return []
+
+
 def _find_rects_for_text(page, quote: str):
     """Find precise rectangles for a quote on a PDF page with conservative matching.
     Strategy order:
     1) Exact phrase (case-insensitive, de-hyphenate)
-    2) Normalized phrase
-    3) Word-based snippets (15, 10, 8, 6 words minimum)
+    2) Word-aligned search across line breaks
+    3) Normalized phrase
+    4) Word-based snippets (15, 10, 8, 6 words minimum)
 
     Returns a list of fitz.Rect covering only the matched spans.
     """
@@ -182,7 +238,12 @@ def _find_rects_for_text(page, quote: str):
     except Exception:
         pass
 
-    # 2) Normalized phrase
+    # 2) Word-aligned search (handles multi-line and punctuation)
+    rects = _find_rects_for_text_by_words(page, quote)
+    if rects:
+        return rects
+
+    # 3) Normalized phrase
     norm = _normalize_text(quote)
     if norm and len(norm) >= 10:
         try:
@@ -192,7 +253,7 @@ def _find_rects_for_text(page, quote: str):
         except Exception:
             pass
 
-    # 3) Word-based snippets - only try substantial phrases (6+ words minimum)
+    # 4) Word-based snippets - only try substantial phrases (6+ words minimum)
     words = quote.split()
     for wlen in [min(15, len(words)), min(10, len(words)), min(8, len(words)), min(6, len(words))]:
         if wlen < 6:  # Don't search for snippets shorter than 6 words
@@ -276,8 +337,8 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
             if not found:
                 pass
 
-            # Final fallback: drop a sticky note on the first page so the user still sees the finding
-            if not found and pdf_document.page_count > 0:
+            # Final fallback: only add a sticky note if a meaningful key_quote existed
+            if (not found) and key_quote and len(key_quote.split()) >= 3 and pdf_document.page_count > 0:
                 page0 = pdf_document[0]
                 note_point = fitz.Point(72, note_y_offset)
                 note = page0.add_text_annot(note_point, comment)
