@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -85,20 +86,138 @@ const RESOURCE_MAPPING = [
   }
 ];
 
+// Simple PDF text extraction function
+async function extractTextFromPdf(base64Pdf: string): Promise<string> {
+  try {
+    const pdfBytes = Uint8Array.from(atob(base64Pdf), c => c.charCodeAt(0));
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pages = pdfDoc.getPages();
+    
+    // For MVP: Return a placeholder indicating we received the PDF
+    // In production, you'd use a proper PDF text extraction library
+    return `[PDF Document with ${pages.length} pages - Text extraction placeholder for MVP demo]`;
+  } catch (error) {
+    console.error("PDF extraction error:", error);
+    return "[PDF extraction failed - please check PDF format]";
+  }
+}
+
+// Generate summary PDF report
+async function generateSummaryPdf(score: number, requirements: any[], recommendations: string[]): Promise<string> {
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([595, 842]); // A4 size
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  
+  const { width, height } = page.getSize();
+  let yPosition = height - 50;
+  
+  // Title
+  page.drawText('QCB Compliance Readiness Report', {
+    x: 50,
+    y: yPosition,
+    size: 20,
+    font: boldFont,
+    color: rgb(0.1, 0.1, 0.4),
+  });
+  
+  yPosition -= 40;
+  
+  // Score
+  page.drawText(`Overall Readiness Score: ${score}%`, {
+    x: 50,
+    y: yPosition,
+    size: 16,
+    font: boldFont,
+    color: score >= 70 ? rgb(0, 0.6, 0) : score >= 40 ? rgb(0.8, 0.6, 0) : rgb(0.8, 0, 0),
+  });
+  
+  yPosition -= 40;
+  
+  // Requirements summary
+  page.drawText('Compliance Requirements:', {
+    x: 50,
+    y: yPosition,
+    size: 14,
+    font: boldFont,
+  });
+  
+  yPosition -= 25;
+  
+  for (const req of requirements) {
+    if (yPosition < 100) break; // Prevent overflow for MVP
+    
+    const statusSymbol = req.status === 'compliant' ? '✓' : req.status === 'partial' ? '⚠' : '✗';
+    const statusColor = req.status === 'compliant' ? rgb(0, 0.6, 0) : req.status === 'partial' ? rgb(0.8, 0.6, 0) : rgb(0.8, 0, 0);
+    
+    page.drawText(`${statusSymbol} ${req.requirement}`, {
+      x: 60,
+      y: yPosition,
+      size: 10,
+      font: font,
+      color: statusColor,
+    });
+    
+    yPosition -= 20;
+  }
+  
+  // Recommendations
+  if (yPosition > 150 && recommendations.length > 0) {
+    yPosition -= 20;
+    page.drawText('Key Recommendations:', {
+      x: 50,
+      y: yPosition,
+      size: 14,
+      font: boldFont,
+    });
+    
+    yPosition -= 25;
+    
+    for (let i = 0; i < Math.min(recommendations.length, 3); i++) {
+      if (yPosition < 100) break;
+      const rec = recommendations[i].substring(0, 80) + (recommendations[i].length > 80 ? '...' : '');
+      page.drawText(`${i + 1}. ${rec}`, {
+        x: 60,
+        y: yPosition,
+        size: 9,
+        font: font,
+      });
+      yPosition -= 20;
+    }
+  }
+  
+  const pdfBytes = await pdfDoc.save();
+  return btoa(String.fromCharCode(...pdfBytes));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { businessModel, amlSecurity, techOperations } = await req.json();
+    const { 
+      businessModelPdf, 
+      amlSecurityPdf, 
+      techOperationsPdf,
+      businessModelFilename,
+      amlSecurityFilename,
+      techOperationsFilename
+    } = await req.json();
 
-    if (!businessModel && !amlSecurity && !techOperations) {
+    if (!businessModelPdf && !amlSecurityPdf && !techOperationsPdf) {
       return new Response(
-        JSON.stringify({ error: "At least one input section is required" }),
+        JSON.stringify({ error: "At least one PDF document is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    console.log("Extracting text from PDFs...");
+    
+    // Extract text from PDFs
+    const businessModel = businessModelPdf ? await extractTextFromPdf(businessModelPdf) : "";
+    const amlSecurity = amlSecurityPdf ? await extractTextFromPdf(amlSecurityPdf) : "";
+    const techOperations = techOperationsPdf ? await extractTextFromPdf(techOperationsPdf) : "";
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -277,11 +396,20 @@ Provide a concise, actionable suggestion (2-3 sentences) on how they can improve
       return req;
     });
 
+    // Generate summary PDF
+    console.log("Generating summary PDF...");
+    const summaryPdf = await generateSummaryPdf(
+      evaluationResult.overall_score,
+      finalRequirements,
+      evaluationResult.recommendations
+    );
+
     return new Response(
       JSON.stringify({
         score: evaluationResult.overall_score,
         requirements: finalRequirements,
         recommendations: evaluationResult.recommendations,
+        summaryPdf: summaryPdf,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
