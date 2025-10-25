@@ -151,45 +151,135 @@ def map_resources(requirement_id: str) -> List[Dict]:
     return matched
 
 
+def _normalize_text(s: str) -> str:
+    """Normalize whitespace to improve PDF text searching"""
+    try:
+        return " ".join((s or "").replace("\n", " ").replace("\r", " ").split())
+    except Exception:
+        return s or ""
+
+
+def _find_rect_for_text(page, quote: str):
+    """Try multiple strategies to locate a quote on a PDF page and return the first rect."""
+    norm = _normalize_text(quote)
+    if not norm or len(norm) < 5:
+        return None
+
+    candidates: List[str] = []
+    # Try progressively smaller character windows from start / end / middle
+    for size in (120, 100, 80, 60, 50, 40, 30, 25):
+        if len(norm) > size:
+            candidates.append(norm[:size])
+    for size in (80, 60, 50, 40, 30):
+        if len(norm) > size:
+            candidates.append(norm[-size:])
+    mid = len(norm) // 2
+    candidates.append(norm[max(0, mid - 40): mid + 40])
+
+    # Try word-based windows
+    words = norm.split()
+    for wlen in (12, 10, 8):
+        if len(words) >= wlen:
+            candidates.append(" ".join(words[:wlen]))
+
+    seen = set()
+    for cand in candidates:
+        cand = cand.strip()
+        if len(cand) < 15 or cand in seen:
+            continue
+        seen.add(cand)
+        try:
+            rects = page.search_for(cand)
+            if rects:
+                return rects[0]
+        except Exception:
+            continue
+    return None
+
+
 def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_category: str) -> bytes:
-    """Add colored annotations to original PDF based on findings"""
+    """Add colored annotations to original PDF based on findings.
+    Tries to highlight key quotes; if not found, drops a sticky note on page 1 as a fallback."""
     try:
         pdf_document = fitz.open(stream=original_pdf_bytes, filetype="pdf")
-        
+
         # Filter requirements for this document category
         relevant_reqs = [r for r in requirements if r["id"] in CATEGORY_MAP.get(doc_category, [])]
-        
+
+        # Simple fallback phrases by requirement id (used if key_quote can't be located)
+        fallback_phrases = {
+            "aml_policy": ["AML policy", "board-approved AML"],
+            "compliance_officer": ["Compliance Officer"],
+            "cdd_procedures": ["Customer Due Diligence", "CDD"],
+            "transaction_monitoring": ["Transaction Monitoring"],
+            "sar_filing": ["Suspicious Activity Reporting", "SAR"],
+            "data_residency": ["data stored", "servers", "State of Qatar"],
+            "business_continuity": ["Business Continuity", "Disaster Recovery", "RTO", "RPO"],
+            "minimum_capital": ["capital", "QAR"],
+            "licensing_category": ["PSP", "P2P", "licensing"],
+            "key_personnel": ["Board", "CEO", "Compliance Officer"],
+            "corporate_structure": ["Articles of Association", "State of Qatar"]
+        }
+
+        # We'll also keep track if we had to fallback to notes so we can stack them
+        note_y_offset = 72  # start 1 inch from top
+
         for req in relevant_reqs:
-            if req["status"] == "compliant":
+            if req.get("status") == "compliant":
                 continue  # Skip compliant items for cleaner output
-            
-            key_quote = req.get("key_quote", "")
-            if not key_quote:
-                continue
-            
-            # Search for the quote in the PDF
-            for page_num in range(pdf_document.page_count):
-                page = pdf_document[page_num]
-                text_instances = page.search_for(key_quote[:50])  # Search for first 50 chars
-                
-                if text_instances:
-                    rect = text_instances[0]  # Use first occurrence
-                    
-                    # Choose color based on status
-                    if req["status"] == "partial":
-                        color = (1, 1, 0)  # Yellow
-                        comment = f"⚠️ {req['requirement']}\n\nSuggestion: {req.get('suggestion', 'Needs improvement')}"
-                    else:  # missing
-                        color = (1, 0, 0)  # Red
-                        comment = f"❌ {req['requirement']}\n\nGap: {req['details']}"
-                    
-                    # Add highlight annotation
-                    highlight = page.add_highlight_annot(rect)
-                    highlight.set_colors(stroke=color)
-                    highlight.set_info(content=comment)
-                    highlight.update()
-                    break
-        
+
+            key_quote = req.get("key_quote", "") or ""
+
+            # Choose color based on status
+            if req.get("status") == "partial":
+                color = (1, 1, 0)  # Yellow
+                comment = f"⚠️ {req['requirement']}\n\nSuggestion: {req.get('suggestion', 'Needs improvement')}"
+            else:  # missing
+                color = (1, 0, 0)  # Red
+                comment = f"❌ {req['requirement']}\n\nGap: {req.get('details', 'Not provided')}"
+
+            found = False
+
+            # First attempt: search using the key_quote with robust matching
+            if key_quote:
+                for page_num in range(pdf_document.page_count):
+                    page = pdf_document[page_num]
+                    rect = _find_rect_for_text(page, key_quote)
+                    if rect:
+                        highlight = page.add_highlight_annot(rect)
+                        highlight.set_colors(stroke=color)  # highlight uses stroke color
+                        highlight.set_info(content=comment)
+                        highlight.update()
+                        found = True
+                        break
+
+            # Second attempt: try fallback phrases based on requirement id
+            if not found:
+                phrases = fallback_phrases.get(req.get("id", ""), [])
+                for page_num in range(pdf_document.page_count):
+                    page = pdf_document[page_num]
+                    hit = None
+                    for phrase in phrases:
+                        hit = _find_rect_for_text(page, phrase)
+                        if hit:
+                            break
+                    if hit:
+                        highlight = page.add_highlight_annot(hit)
+                        highlight.set_colors(stroke=color)
+                        highlight.set_info(content=comment)
+                        highlight.update()
+                        found = True
+                        break
+
+            # Final fallback: drop a sticky note on the first page so the user still sees the finding
+            if not found and pdf_document.page_count > 0:
+                page0 = pdf_document[0]
+                note_point = fitz.Point(72, note_y_offset)
+                note = page0.add_text_annot(note_point, comment)
+                note.set_colors(stroke=color)
+                note.update()
+                note_y_offset += 36  # stack notes vertically
+
         # Save modified PDF to bytes
         output_bytes = pdf_document.write()
         pdf_document.close()
