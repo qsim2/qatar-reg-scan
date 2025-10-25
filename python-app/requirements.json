@@ -28,6 +28,13 @@
     "input_category": "business_plan"
   },
   {
+    "id": "p2p_transaction_cap",
+    "category": "Operational Limits",
+    "requirement": "P2P Loan Transaction Limit",
+    "description": "Article 1.3.1 (QCB-FINTECH-2025-001): For P2P Loan Origination and Servicing platforms, the maximum individual transaction value for a single loan is capped at QAR 200,000.",
+    "input_category": "business_plan"
+  },
+  {
     "id": "key_personnel",
     "category": "Governance & Personnel",
     "requirement": "Fit and Proper Requirements",

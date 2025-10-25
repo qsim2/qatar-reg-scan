@@ -33,6 +33,7 @@ CATEGORY_MAP = {
         "minimum_capital_psp",
         "minimum_capital_p2p",
         "minimum_capital_wealth",
+        "p2p_transaction_cap",
         "annual_audit",
         "data_residency",  # Hosting/infra statements often appear in the business plan
         "data_consent"     # Some data governance statements may be in the plan
@@ -300,6 +301,7 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
             "minimum_capital_psp": ["QAR 5,000,000", "Payment Service Provider", "PSP"],
             "minimum_capital_p2p": ["QAR 7,500,000", "Marketplace Lending", "P2P"],
             "minimum_capital_wealth": ["QAR 4,000,000", "Digital Wealth Management"],
+            "p2p_transaction_cap": ["QAR 200,000", "maximum individual transaction", "loan is capped"],
             "licensing_category": ["P2P Loan Origination", "Loan Origination and Servicing", "Payment Service Provider", "PSP", "Marketplace Lending", "Category 1", "Category 2"],
             "key_personnel": ["Board", "CEO", "Compliance Officer", "CVs", "police clearance"],
             "corporate_structure": ["Articles of Association", "registered"],
