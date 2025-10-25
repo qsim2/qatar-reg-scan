@@ -1,610 +1,314 @@
 """
-Regulatory Navigator & Readiness Evaluator - Hackathon MVP
-A PDF processing pipeline for FinTech compliance evaluation
+QCB Compliance Navigator - Pipeline Architecture
+A comprehensive regulatory compliance evaluation system following the architecture:
+PDF Extraction → Preprocessing → Rule Checks → Semantic Matching → Scoring → Report Generation
 """
 
 import streamlit as st
-import json
-import io
-import base64
-from typing import Dict, List, Tuple
-import fitz  # PyMuPDF
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-from reportlab.lib.colors import HexColor
 from openai import OpenAI
 
-# Import core business logic from separate module
-from compliance_engine import evaluate_compliance, generate_suggestions, map_resources, QCB_REQUIREMENTS, RESOURCE_MAPPING
-
-# Category mapping for documents - maps document types to requirement IDs
-CATEGORY_MAP = {
-    "business_plan": [
-        "licensing_category",
-        "minimum_capital_psp",
-        "minimum_capital_p2p",
-        "minimum_capital_wealth",
-        "p2p_transaction_cap",
-        "annual_audit",
-        "data_residency",  # Hosting/infra statements often appear in the business plan
-        "data_consent"     # Some data governance statements may be in the plan
-    ],
-    "compliance_policy": [
-        "cdd_enhanced",
-        "source_of_funds",
-        "kyc_documentation",
-        "aml_policy",
-        "transaction_monitoring",
-        "str_reporting",
-        "data_consent",
-        "data_residency",
-        "compliance_officer"
-    ],
-    "legal_structure": [
-        "key_personnel",
-        "corporate_structure",
-        "data_residency"
-    ]
-}
+# Import pipeline stages
+from pdf_extractor import extract_all_documents
+from preprocessor import preprocess_documents
+from rule_checker import apply_rule_checks, get_rule_coverage
+from semantic_matcher import semantic_match
+from scoring_engine import calculate_scores, identify_urgent_gaps
+from report_generator import generate_ai_suggestions, generate_general_recommendations
 
 
-def extract_text_from_pdf(pdf_file) -> str:
-    """Extract text content from uploaded PDF file"""
+# Page configuration
+st.set_page_config(
+    page_title="QCB Compliance Navigator",
+    page_icon="🏛️",
+    layout="wide"
+)
+
+# Initialize OpenAI client
+client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", ""))
+
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        background: linear-gradient(135deg, #8B1538 0%, #C19A3C 100%);
+        padding: 2rem;
+        border-radius: 10px;
+        color: white;
+        margin-bottom: 2rem;
+    }
+    .stage-badge {
+        background-color: #8B1538;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
+    .score-display {
+        font-size: 4rem;
+        font-weight: bold;
+        text-align: center;
+        margin: 2rem 0;
+    }
+    .score-high { color: #10b981; }
+    .score-medium { color: #f59e0b; }
+    .score-low { color: #ef4444; }
+</style>
+""", unsafe_allow_html=True)
+
+
+def main():
+    # Header
+    st.markdown("""
+    <div class="main-header">
+        <h1>🏛️ QCB Compliance Navigator</h1>
+        <p>Intelligent Compliance Analysis Pipeline for FinTech Licensing</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Sidebar - Upload documents
+    with st.sidebar:
+        st.header("📄 Document Upload")
+        st.markdown("Upload your three required documents:")
+        
+        business_plan_file = st.file_uploader(
+            "Business Plan",
+            type="pdf",
+            help="Your business plan PDF"
+        )
+        
+        compliance_policy_file = st.file_uploader(
+            "Compliance Policy",
+            type="pdf",
+            help="Internal compliance policy document"
+        )
+        
+        legal_structure_file = st.file_uploader(
+            "Legal Structure",
+            type="pdf",
+            help="Legal structure and corporate documents"
+        )
+        
+        analyze_button = st.button(
+            "🚀 Analyze Compliance",
+            type="primary",
+            use_container_width=True,
+            disabled=not (business_plan_file and compliance_policy_file and legal_structure_file)
+        )
+    
+    # Main content area
+    if analyze_button and all([business_plan_file, compliance_policy_file, legal_structure_file]):
+        run_compliance_pipeline(business_plan_file, compliance_policy_file, legal_structure_file)
+    else:
+        show_welcome_screen()
+
+
+def show_welcome_screen():
+    """Display welcome screen with pipeline overview"""
+    st.markdown("## 🔄 Analysis Pipeline")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        ### Stage 1-2: Extraction & Preprocessing
+        - 📄 PDF text extraction
+        - ✂️ Text chunking with overlap
+        - 🧹 Text normalization
+        """)
+    
+    with col2:
+        st.markdown("""
+        ### Stage 3-4: Analysis
+        - 🔍 Rule-based NER checks
+        - 🧠 Semantic embedding matching
+        - 🎯 Requirement identification
+        """)
+    
+    with col3:
+        st.markdown("""
+        ### Stage 5-6: Scoring & Report
+        - 📊 Weighted scoring engine
+        - 💡 AI-powered recommendations
+        - 🗺️ Resource mapping
+        """)
+    
+    st.info("👆 Upload your three documents in the sidebar to begin analysis")
+
+
+def run_compliance_pipeline(business_plan_file, compliance_policy_file, legal_structure_file):
+    """Execute the full compliance analysis pipeline"""
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
     try:
-        pdf_bytes = pdf_file.read()
-        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
-        text = ""
-        for page_num in range(pdf_document.page_count):
-            page = pdf_document[page_num]
-            text += page.get_text()
-        pdf_document.close()
-        return text
+        # Stage 1: PDF Extraction
+        status_text.markdown('<div class="stage-badge">Stage 1/6: PDF Extraction</div>', unsafe_allow_html=True)
+        progress_bar.progress(10)
+        
+        # Reset file pointers
+        business_plan_file.seek(0)
+        compliance_policy_file.seek(0)
+        legal_structure_file.seek(0)
+        
+        documents = extract_all_documents(
+            business_plan_file,
+            compliance_policy_file,
+            legal_structure_file
+        )
+        
+        # Stage 2: Preprocessing & Chunking
+        status_text.markdown('<div class="stage-badge">Stage 2/6: Preprocessing & Chunking</div>', unsafe_allow_html=True)
+        progress_bar.progress(25)
+        
+        chunks = preprocess_documents(documents)
+        
+        # Stage 3: Rule-based Checks
+        status_text.markdown('<div class="stage-badge">Stage 3/6: Rule-based Checks & NER</div>', unsafe_allow_html=True)
+        progress_bar.progress(40)
+        
+        rule_matches = apply_rule_checks(chunks)
+        rule_coverage = get_rule_coverage(rule_matches)
+        
+        # Stage 4: Semantic Matching
+        status_text.markdown('<div class="stage-badge">Stage 4/6: Semantic Matching</div>', unsafe_allow_html=True)
+        progress_bar.progress(60)
+        
+        requirements = semantic_match(chunks, rule_matches, rule_coverage, client)
+        
+        # Stage 5: Scoring
+        status_text.markdown('<div class="stage-badge">Stage 5/6: Scoring Engine</div>', unsafe_allow_html=True)
+        progress_bar.progress(75)
+        
+        scoring_result = calculate_scores(requirements)
+        urgent_gaps = identify_urgent_gaps(scoring_result["requirements"])
+        
+        # Stage 6: Report Generation
+        status_text.markdown('<div class="stage-badge">Stage 6/6: Report Generation</div>', unsafe_allow_html=True)
+        progress_bar.progress(90)
+        
+        urgent_recommendations = generate_ai_suggestions(urgent_gaps, client)
+        general_recommendations = generate_general_recommendations(scoring_result, client)
+        
+        progress_bar.progress(100)
+        status_text.markdown('<div class="stage-badge">✅ Analysis Complete!</div>', unsafe_allow_html=True)
+        
+        # Display results
+        display_results(scoring_result, urgent_recommendations, general_recommendations)
+        
     except Exception as e:
-        st.error(f"Error extracting text from PDF: {str(e)}")
-        return ""
+        st.error(f"❌ Error during analysis: {str(e)}")
+        st.exception(e)
 
 
-# Removed - now imported from compliance_engine
-
-
-# Removed - now imported from compliance_engine
-
-
-# Removed - now imported from compliance_engine
-
-
-def _normalize_text(s: str) -> str:
-    """Normalize whitespace to improve PDF text searching"""
-    try:
-        return " ".join((s or "").replace("\n", " ").replace("\r", " ").split())
-    except Exception:
-        return s or ""
-
-
-def _find_rect_for_text(page, quote: str):
-    """Robustly locate a quote on a PDF page and return a well-fitted rect.
-    Strategy:
-    1) Exact phrase (case-insensitive, de-hyphenate)
-    2) Normalized phrase
-    3) Shorter word-based snippets (from the start of the quote)
+def display_results(scoring_result, urgent_recommendations, general_recommendations):
+    """Display compliance analysis results"""
     
-    When multiple rectangles are returned, we group nearby lines and pick the
-    largest contiguous group to avoid over-wide, misaligned highlights (common
-    in multi-column layouts).
-    """
-    if not quote or len(quote) < 5:
-        return None
-
-    def _merge_and_choose(rects):
-        """Group close-by rects vertically and choose the largest contiguous group."""
-        if not rects:
-            return None
-        try:
-            rects_sorted = sorted(rects, key=lambda r: (r.y0, r.x0))
-            y_thresh = 6  # pts: treat rectangles within this vertical gap as same block
-            groups = []
-            current = [rects_sorted[0]]
-            for r in rects_sorted[1:]:
-                prev = current[-1]
-                if r.y0 <= prev.y1 + y_thresh:
-                    current.append(r)
-                else:
-                    groups.append(current)
-                    current = [r]
-            groups.append(current)
-
-            merged = []
-            for g in groups:
-                x0 = min(rr.x0 for rr in g)
-                y0 = min(rr.y0 for rr in g)
-                x1 = max(rr.x1 for rr in g)
-                y1 = max(rr.y1 for rr in g)
-                merged.append(fitz.Rect(x0, y0, x1, y1))
-
-            # Choose the largest area block which usually best fits the phrase
-            def area(R):
-                return (R.x1 - R.x0) * (R.y1 - R.y0)
-
-            best = max(merged, key=area)
-            return best
-        except Exception:
-            # Fallback: first rect
-            return rects[0]
-
-    # Prepare robust search flags
-    flags = getattr(fitz, "TEXT_IGNORECASE", 0) | getattr(fitz, "TEXT_DEHYPHENATE", 0)
-
-    # 1) Exact phrase
-    try:
-        rects = page.search_for(quote, flags=flags)
-        if rects:
-            return _merge_and_choose(rects)
-    except Exception:
-        pass
-
-    # 2) Normalized phrase
-    norm = _normalize_text(quote)
-    if norm and len(norm) >= 10:
-        try:
-            rects = page.search_for(norm, flags=flags)
-            if rects:
-                return _merge_and_choose(rects)
-        except Exception:
-            pass
-
-    # 3) Word-based snippets from the start of the quote
-    words = quote.split()
-    for wlen in [min(15, len(words)), min(10, len(words)), min(6, len(words))]:
-        if wlen <= 0:
-            continue
-        snippet = " ".join(words[:wlen])
-        try:
-            rects = page.search_for(snippet, flags=flags)
-            if rects:
-                return _merge_and_choose(rects)
-        except Exception:
-            continue
-
-    return None
-
-
-def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_category: str) -> bytes:
-    """Add colored annotations to original PDF based on findings.
-    Highlights only when matching text is found in this specific document. If no match is found, an appended summary page lists unresolved items (no sticky notes)."""
-    try:
-        pdf_document = fitz.open(stream=original_pdf_bytes, filetype="pdf")
-
-        # Filter requirements for this document category
-        # Only include requirements expected for this document; annotate ONLY when text is found
-        relevant_reqs = [
-            r for r in requirements 
-            if (r.get("id") in CATEGORY_MAP.get(doc_category, []) or r.get("found_in_document") == doc_category)
-        ]
-
-        # Simple fallback phrases by requirement id (used if key_quote can't be located)
-        fallback_phrases = {
-            "aml_policy": ["AML policy", "board-approved AML", "Anti-Money Laundering"],
-            "compliance_officer": ["Compliance Officer"],
-            "cdd_enhanced": ["Customer Due Diligence", "CDD", "QAR 10,000"],
-            "source_of_funds": ["source of funds", "source of wealth", "QAR 50,000"],
-            "kyc_documentation": ["government-issued identification", "KYC", "Proof of Residency"],
-            "transaction_monitoring": ["Transaction Monitoring", "transaction monitoring system"],
-            "str_reporting": ["Suspicious Transaction Report", "STR", "Suspicious Activity"],
-            "sar_filing": ["Suspicious Activity Reporting", "SAR"],
-            "data_residency": ["Amazon Web Services", "AWS", "hosted on AWS", "AWS region", "eu-west-1", "ap-southeast-1", "Ireland", "Singapore", "CloudFront", "S3", "RDS", "Microsoft Azure", "Azure", "Google Cloud", "GCP", "outside Qatar", "Qatar data residency", "global CDN", "cloud infrastructure"],
-            "data_consent": ["consent", "third-party service providers", "data sharing"],
-            "business_continuity": ["Business Continuity", "Disaster Recovery", "RTO", "RPO"],
-            "minimum_capital": ["capital", "QAR"],
-            "minimum_capital_psp": ["QAR 5,000,000", "Payment Service Provider", "PSP"],
-            "minimum_capital_p2p": ["QAR 7,500,000", "Marketplace Lending", "P2P"],
-            "minimum_capital_wealth": ["QAR 4,000,000", "Digital Wealth Management"],
-            "p2p_transaction_cap": ["QAR 200,000", "maximum individual transaction", "loan is capped"],
-            "licensing_category": ["P2P Loan Origination", "Loan Origination and Servicing", "Payment Service Provider", "PSP", "Marketplace Lending", "Category 1", "Category 2"],
-            "key_personnel": ["Board", "CEO", "Compliance Officer", "CVs", "police clearance"],
-            "corporate_structure": ["Articles of Association", "registered"],
-            "annual_audit": ["annual audit", "external audit", "technology systems"]
-        }
-
-        # We'll no longer create sticky notes; only highlight when text is found
-        unresolved = []
-        for req in relevant_reqs:
-            if req.get("status") == "compliant":
-                continue  # Skip compliant items for cleaner output
-
-            key_quote = req.get("key_quote", "") or ""
-
-            # Choose color based on status - Qatar burgundy theme
-            if req.get("status") == "partial":
-                color = (0.82, 0.63, 0.22)  # Gold
-                comment = f"⚠️ {req['requirement']}\n\nSuggestion: {req.get('suggestion', 'Needs improvement')}"
-            else:  # missing
-                color = (0.54, 0.08, 0.22)  # Qatar Burgundy
-                comment = f"❌ {req['requirement']}\n\nGap: {req.get('details', 'Not provided')}"
-
-            found = False
-
-            # First attempt: search using the key_quote with robust matching
-            if key_quote:
-                for page_num in range(pdf_document.page_count):
-                    page = pdf_document[page_num]
-                    rect = _find_rect_for_text(page, key_quote)
-                    if rect:
-                        highlight = page.add_highlight_annot(rect)
-                        highlight.set_colors(stroke=color)  # highlight uses stroke color
-                        highlight.set_info(content=comment)
-                        highlight.update()
-                        found = True
-                        break
-
-            # Second attempt: try fallback phrases based on requirement id
-            if not found:
-                phrases = fallback_phrases.get(req.get("id", ""), [])
-                for page_num in range(pdf_document.page_count):
-                    page = pdf_document[page_num]
-                    hit = None
-                    for phrase in phrases:
-                        hit = _find_rect_for_text(page, phrase)
-                        if hit:
-                            break
-                    if hit:
-                        highlight = page.add_highlight_annot(hit)
-                        highlight.set_colors(stroke=color)
-                        highlight.set_info(content=comment)
-                        highlight.update()
-                        found = True
-                        break
-
-            # If no text was found to highlight, collect for summary page
-            if not found and req.get("status") in ("partial", "missing"):
-                unresolved.append({
-                    "requirement": req.get("requirement", ""),
-                    "status": req.get("status", ""),
-                    "details": req.get("details", ""),
-                    "suggestion": req.get("suggestion", "")
-                })
-        # Append a summary page listing unresolved findings for this document
-        if unresolved:
-            try:
-                page = pdf_document.new_page(-1, width=595, height=842)  # A4 portrait
-                header = f"Unresolved findings for {doc_category.replace('_', ' ').title()}"
-                content = header + "\n\n"
-                for u in unresolved:
-                    symbol = "⚠️" if u.get("status") == "partial" else "❌"
-                    content += f"{symbol} {u.get('requirement','')}\n- {u.get('details','')}\n"
-                    if u.get("suggestion"):
-                        content += f"Suggestion: {u['suggestion']}\n"
-                    content += "\n"
-                rect = fitz.Rect(50, 50, 545, 792)
-                page.insert_textbox(rect, content, fontsize=11, fontname="helv", color=(0, 0, 0))
-            except Exception:
-                pass
-
-        # Save modified PDF to bytes
-        output_bytes = pdf_document.write()
-        pdf_document.close()
-        return output_bytes
-    except Exception as e:
-        st.error(f"Error annotating PDF: {str(e)}")
-        return original_pdf_bytes
-
-
-def generate_summary_pdf(score: int, requirements: List[Dict], recommendations: List[str]) -> bytes:
-    """Generate a professional summary report PDF"""
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.75*inch, bottomMargin=0.75*inch)
+    st.markdown("---")
+    st.markdown("## 📊 Compliance Analysis Results")
     
-    styles = getSampleStyleSheet()
+    # Overall Score
+    score = scoring_result["overall_score"]
+    score_class = "score-high" if score >= 70 else "score-medium" if score >= 40 else "score-low"
     
-    # Custom styles - Qatar burgundy theme
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Title'],
-        fontSize=24,
-        textColor=HexColor('#8B1538'),
-        spaceAfter=30
-    )
+    st.markdown(f'<div class="score-display {score_class}">{score}%</div>', unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; font-size: 1.2rem; color: #666;'>Overall Compliance Readiness</p>", unsafe_allow_html=True)
     
-    heading_style = ParagraphStyle(
-        'CustomHeading',
-        parent=styles['Heading2'],
-        fontSize=14,
-        textColor=HexColor('#8B1538'),
-        spaceAfter=12,
-        spaceBefore=20
-    )
+    # Summary Stats
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("✅ Compliant", scoring_result["summary"]["compliant"])
+    with col2:
+        st.metric("⚠️ Partial", scoring_result["summary"]["partial"])
+    with col3:
+        st.metric("❌ Missing", scoring_result["summary"]["missing"])
+    with col4:
+        st.metric("📋 Total", scoring_result["summary"]["total"])
     
-    story = []
+    # Tabs for detailed results
+    tab1, tab2, tab3 = st.tabs(["🔴 Critical Requirements", "📋 All Requirements", "💡 Recommendations"])
     
-    # Title
-    story.append(Paragraph("QCB Compliance Readiness Report", title_style))
-    story.append(Spacer(1, 0.2*inch))
+    with tab1:
+        display_critical_requirements(scoring_result["requirements"])
     
-    # Score - Qatar colors
-    score_color = HexColor('#D4AF37') if score >= 70 else HexColor('#C19A3C') if score >= 40 else HexColor('#8B1538')
-    score_style = ParagraphStyle('Score', parent=styles['Normal'], fontSize=18, textColor=score_color, spaceAfter=20)
-    story.append(Paragraph(f"Overall Readiness Score: <b>{score}%</b>", score_style))
-    story.append(Spacer(1, 0.3*inch))
+    with tab2:
+        display_all_requirements(scoring_result["requirements"])
     
-    # Group requirements by category
+    with tab3:
+        display_recommendations(urgent_recommendations, general_recommendations)
+
+
+def display_critical_requirements(requirements):
+    """Display critical requirements with detailed status"""
+    critical = [r for r in requirements if r["is_critical"]]
+    
+    st.markdown("### Critical Requirements (2x Weight)")
+    
+    for req in critical:
+        status_emoji = "✅" if req["status"] == "compliant" else "⚠️" if req["status"] == "partial" else "❌"
+        status_color = "#10b981" if req["status"] == "compliant" else "#f59e0b" if req["status"] == "partial" else "#ef4444"
+        
+        with st.expander(f"{status_emoji} {req['requirement']} - **{req['status'].upper()}**"):
+            st.markdown(f"**Category:** {req['category']}")
+            st.markdown(f"**Similarity Score:** {req['similarity_score']:.2%}")
+            st.markdown(f"**Details:** {req['details']}")
+            st.markdown(f"**Found in:** {req['found_in_document'].replace('_', ' ').title()}")
+            st.markdown(f"**Points:** {req['points']}/100 (Weight: {req['weight']}x)")
+
+
+def display_all_requirements(requirements):
+    """Display all requirements grouped by category"""
+    # Group by category
     categories = {}
     for req in requirements:
-        cat = req.get("category", "Other")
+        cat = req["category"]
         if cat not in categories:
             categories[cat] = []
         categories[cat].append(req)
     
-    # Requirements by category
-    story.append(Paragraph("Detailed Compliance Assessment", heading_style))
-    
     for category, reqs in categories.items():
-        story.append(Paragraph(f"<b>{category.replace('_', ' ').title()}</b>", styles['Heading3']))
+        st.markdown(f"### {category}")
         
         for req in reqs:
-            # Status symbol - Qatar colors
-            if req["status"] == "compliant":
-                symbol = "✅"
-                color = HexColor('#D4AF37')
-            elif req["status"] == "partial":
-                symbol = "⚠️"
-                color = HexColor('#C19A3C')
-            else:
-                symbol = "❌"
-                color = HexColor('#8B1538')
+            status_emoji = "✅" if req["status"] == "compliant" else "⚠️" if req["status"] == "partial" else "❌"
             
-            req_style = ParagraphStyle('Req', parent=styles['Normal'], textColor=color, leftIndent=20)
-            story.append(Paragraph(f"{symbol} <b>{req['requirement']}</b>", req_style))
-            story.append(Paragraph(f"<i>Status: {req['status'].title()}</i>", styles['Normal']))
-            story.append(Paragraph(f"Reasoning: {req['details']}", styles['Normal']))
-            
-            if req.get('suggestion'):
-                story.append(Paragraph(f"<b>Improvement Suggestion:</b> {req['suggestion']}", styles['Normal']))
-            
-            if req.get('resources'):
-                story.append(Paragraph("<b>Recommended Resources:</b>", styles['Normal']))
-                for resource in req['resources']:
-                    story.append(Paragraph(f"• {resource['name']} ({resource['type']}) - {resource['contact']}", styles['Normal']))
-            
-            story.append(Spacer(1, 0.15*inch))
-    
-    # General Recommendations
-    if recommendations:
-        story.append(PageBreak())
-        story.append(Paragraph("Key Recommendations", heading_style))
-        for i, rec in enumerate(recommendations, 1):
-            story.append(Paragraph(f"{i}. {rec}", styles['Normal']))
-            story.append(Spacer(1, 0.1*inch))
-    
-    doc.build(story)
-    buffer.seek(0)
-    return buffer.read()
+            with st.expander(f"{status_emoji} {req['requirement']}"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"**Status:** {req['status'].upper()}")
+                    st.markdown(f"**Similarity:** {req['similarity_score']:.2%}")
+                with col2:
+                    st.markdown(f"**Points:** {req['points']}/100")
+                    if req.get("is_critical"):
+                        st.markdown("⭐ **Critical Requirement**")
+                
+                st.markdown(f"**Details:** {req['details']}")
 
 
-def main():
-    st.set_page_config(
-        page_title="QCB Regulatory Navigator",
-        page_icon="📋",
-        layout="wide"
-    )
+def display_recommendations(urgent_recommendations, general_recommendations):
+    """Display AI-generated recommendations"""
     
-    # Load and encode background image
-    try:
-        with open("qatar_background.jpg", "rb") as img_file:
-            img_data = base64.b64encode(img_file.read()).decode()
-            bg_image = f"data:image/jpeg;base64,{img_data}"
-    except:
-        bg_image = ""  # Fallback if image not found
-    
-    # Custom CSS for Qatar-themed background
-    st.markdown(f"""
-    <style>
-    .stApp {{
-        background-image: url('{bg_image}');
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }}
-    
-    /* Add subtle overlay for better text readability */
-    .stApp::before {{
-        content: "";
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(255, 255, 255, 0.85);
-        pointer-events: none;
-        z-index: 0;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.title("🏦 QCB Regulatory Navigator & Readiness Evaluator")
-    st.markdown("**Upload your 3 core documents for comprehensive compliance evaluation**")
-    
-    st.divider()
-    
-    # File uploaders
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.subheader("📄 Business Plan")
-        business_plan_file = st.file_uploader(
-            "Upload Business Plan PDF",
-            type=["pdf"],
-            key="business_plan",
-            help="Your startup's business plan document"
-        )
-    
-    with col2:
-        st.subheader("🔒 Compliance Policy")
-        compliance_policy_file = st.file_uploader(
-            "Upload Internal Compliance Policy PDF",
-            type=["pdf"],
-            key="compliance_policy",
-            help="Your AML/CFT and security policies"
-        )
-    
-    with col3:
-        st.subheader("⚖️ Legal Structure")
-        legal_structure_file = st.file_uploader(
-            "Upload Legal Structure Document PDF",
-            type=["pdf"],
-            key="legal_structure",
-            help="Your articles of association and corporate structure"
-        )
-    
-    st.divider()
-    
-    # Initialize session state
-    if 'results' not in st.session_state:
-        st.session_state.results = None
-    
-    # Evaluate button
-    if st.button("🚀 Evaluate Compliance", type="primary", use_container_width=True):
-        if not all([business_plan_file, compliance_policy_file, legal_structure_file]):
-            st.error("⚠️ Please upload all three PDF documents before proceeding.")
-            return
+    if urgent_recommendations:
+        st.markdown("### 🚨 Urgent Action Items")
+        st.markdown("Critical gaps that require immediate attention:")
         
-        with st.spinner("🔍 Processing documents and analyzing compliance..."):
-            # Read file bytes first
-            st.info("📖 Reading PDF files...")
-            business_plan_bytes = business_plan_file.read()
-            compliance_policy_bytes = compliance_policy_file.read()
-            legal_structure_bytes = legal_structure_file.read()
-            
-            # Extract text from bytes
-            business_plan_file.seek(0)
-            compliance_policy_file.seek(0)
-            legal_structure_file.seek(0)
-            
-            business_plan_text = extract_text_from_pdf(business_plan_file)
-            compliance_policy_text = extract_text_from_pdf(compliance_policy_file)
-            legal_structure_text = extract_text_from_pdf(legal_structure_file)
-            
-            # Stage 1: Evaluation
-            st.info("🤖 AI Analysis Stage 1: Evaluating requirements...")
-            api_key = st.secrets.get("OPENAI_API_KEY", "")
-            evaluation_result = evaluate_compliance(
-                business_plan_text,
-                compliance_policy_text,
-                legal_structure_text,
-                api_key
-            )
-            
-            # Stage 2: Generate suggestions for partial items
-            st.info("💡 AI Analysis Stage 2: Generating improvement suggestions...")
-            for req in evaluation_result["requirements"]:
-                if req["status"] == "partial":
-                    req["suggestion"] = generate_suggestions(req, api_key)
-                    req["resources"] = map_resources(req["id"])
-                elif req["status"] == "missing":
-                    req["resources"] = map_resources(req["id"])
-            
-            # Generate PDFs
-            st.info("📝 Generating downloadable reports...")
-            
-            # Annotated PDFs using the bytes we already read
-            annotated_bp = annotate_pdf(business_plan_bytes, evaluation_result["requirements"], "business_plan")
-            annotated_cp = annotate_pdf(compliance_policy_bytes, evaluation_result["requirements"], "compliance_policy")
-            annotated_ls = annotate_pdf(legal_structure_bytes, evaluation_result["requirements"], "legal_structure")
-            
-            # Summary PDF
-            summary_pdf = generate_summary_pdf(
-                evaluation_result["overall_score"],
-                evaluation_result["requirements"],
-                evaluation_result["recommendations"]
-            )
-            
-            # Store results in session state
-            st.session_state.results = {
-                'score': evaluation_result["overall_score"],
-                'requirements': evaluation_result["requirements"],
-                'annotated_bp': annotated_bp,
-                'annotated_cp': annotated_cp,
-                'annotated_ls': annotated_ls,
-                'summary_pdf': summary_pdf
-            }
-            
-            st.success("✅ Analysis complete! Download your reports below.")
+        for rec in urgent_recommendations:
+            with st.container():
+                st.markdown(f"#### {rec['requirement']}")
+                st.markdown(f"**Status:** {rec['status'].upper()}")
+                st.markdown(f"**Recommendation:** {rec['suggestion']}")
+                
+                if rec['resources']:
+                    st.markdown("**Resources:**")
+                    for resource in rec['resources']:
+                        st.markdown(f"- [{resource['name']}]({resource.get('url', '#')}) - {resource.get('type', 'Resource')}")
+                
+                st.markdown("---")
     
-    # Display results if available
-    if st.session_state.results:
-        # Display score with Qatar colors
-        score = st.session_state.results['score']
-        score_emoji = "🏆" if score >= 85 else "⚡" if score >= 40 else "📋"
-        st.metric("Overall Readiness Score", f"{score}%", delta=f"{score_emoji}")
-        
-        st.divider()
-        
-        # Urgent Recommendations Section
-        requirements = st.session_state.results.get('requirements', [])
-        urgent_items = [req for req in requirements if req["status"] == "missing"]
-        
-        if urgent_items:
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, #8B1538 0%, #A01B47 100%); padding: 20px; border-radius: 10px; margin: 20px 0;">
-                <h3 style="color: #FFFFFF; margin: 0 0 10px 0;">🚨 URGENT: Critical Requirements Missing</h3>
-                <p style="color: #F5F5DC; margin: 0;"><strong>{len(urgent_items)}</strong> critical requirement{'s' if len(urgent_items) != 1 else ''} must be addressed immediately</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            for idx, item in enumerate(urgent_items, 1):
-                with st.container():
-                    st.markdown(f"""
-                    <div style="background-color: #FFF5F5; border-left: 5px solid #8B1538; padding: 18px; margin: 12px 0; border-radius: 8px; box-shadow: 0 2px 8px rgba(139, 21, 56, 0.15);">
-                        <p style="margin: 0; font-weight: bold; color: #8B1538; font-size: 1.1em;">⚠️ {item['requirement']}</p>
-                        <p style="margin: 8px 0 0 0; font-size: 0.8em; color: #666; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">{item['category'].replace('_', ' ')}</p>
-                        <p style="margin: 12px 0 0 0; color: #4A4A4A; line-height: 1.5;">{item['details']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            st.divider()
-        
-        # Download buttons
-        st.subheader("📥 Download Reports")
-        
-        col1, col2 = st.columns(2)
-        col3, col4 = st.columns(2)
-        
-        with col1:
-            st.download_button(
-                label="📄 Download Marked-up Business Plan",
-                data=st.session_state.results['annotated_bp'],
-                file_name="annotated_business_plan.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-        
-        with col2:
-            st.download_button(
-                label="🔒 Download Marked-up Compliance Policy",
-                data=st.session_state.results['annotated_cp'],
-                file_name="annotated_compliance_policy.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-        
-        with col3:
-            st.download_button(
-                label="⚖️ Download Marked-up Legal Structure",
-                data=st.session_state.results['annotated_ls'],
-                file_name="annotated_legal_structure.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-        
-        with col4:
-            st.download_button(
-                label="📊 Download Summary Report",
-                data=st.session_state.results['summary_pdf'],
-                file_name="compliance_summary_report.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-                type="primary"
-            )
+    st.markdown("### 📝 General Recommendations")
+    for i, rec in enumerate(general_recommendations, 1):
+        st.markdown(f"{i}. {rec}")
 
 
 if __name__ == "__main__":
