@@ -1,0 +1,445 @@
+"""
+Regulatory Navigator & Readiness Evaluator - Hackathon MVP
+A PDF processing pipeline for FinTech compliance evaluation
+"""
+
+import streamlit as st
+import json
+import io
+import base64
+from typing import Dict, List, Tuple
+import fitz  # PyMuPDF
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib.colors import HexColor
+from openai import OpenAI
+
+# Initialize OpenAI client
+client = OpenAI(api_key=st.secrets.get("OPENAI_API_KEY", ""))
+
+# Load configuration files
+with open("requirements.json", "r") as f:
+    QCB_REQUIREMENTS = json.load(f)
+
+with open("resource_mapping_data.json", "r") as f:
+    RESOURCE_MAPPING = json.load(f)
+
+# Category mapping for documents
+CATEGORY_MAP = {
+    "business_plan": ["licensing_category", "minimum_capital", "business_continuity"],
+    "compliance_policy": ["aml_policy", "compliance_officer", "cdd_procedures", "transaction_monitoring", "sar_filing"],
+    "legal_structure": ["key_personnel", "corporate_structure", "data_residency"]
+}
+
+
+def extract_text_from_pdf(pdf_file) -> str:
+    """Extract text content from uploaded PDF file"""
+    try:
+        pdf_bytes = pdf_file.read()
+        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+        text = ""
+        for page_num in range(pdf_document.page_count):
+            page = pdf_document[page_num]
+            text += page.get_text()
+        pdf_document.close()
+        return text
+    except Exception as e:
+        st.error(f"Error extracting text from PDF: {str(e)}")
+        return ""
+
+
+def evaluate_compliance(business_plan: str, compliance_policy: str, legal_structure: str) -> Dict:
+    """Stage 1: AI Evaluation of all requirements"""
+    
+    evaluation_prompt = f"""You are an expert regulatory compliance analyst specializing in Qatar Central Bank (QCB) FinTech licensing requirements.
+
+Analyze the provided documentation against these QCB requirements:
+{json.dumps(QCB_REQUIREMENTS, indent=2)}
+
+Evaluate each requirement and classify as:
+- "compliant": Fully meets the requirement with comprehensive evidence
+- "partial": Partially meets the requirement but lacks detail or completeness
+- "missing": Does not address the requirement or fundamentally absent
+
+For any "partial" or "missing" status, identify a KEY QUOTE from the source document that best represents what was found (or the closest relevant text).
+
+Documentation to analyze:
+
+BUSINESS PLAN:
+{business_plan}
+
+INTERNAL COMPLIANCE POLICY:
+{compliance_policy}
+
+LEGAL STRUCTURE DOCUMENT:
+{legal_structure}
+
+Return a JSON object with this structure:
+{{
+  "overall_score": <number 0-100>,
+  "requirements": [
+    {{
+      "id": "<requirement_id>",
+      "category": "<category_name>",
+      "requirement": "<requirement_title>",
+      "status": "compliant|partial|missing",
+      "details": "<your reasoning>",
+      "key_quote": "<exact quote from source document, if non-compliant>"
+    }}
+  ],
+  "recommendations": ["<general recommendation 1>", "<general recommendation 2>", ...]
+}}"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a regulatory compliance expert. Return only valid JSON."},
+                {"role": "user", "content": evaluation_prompt}
+            ],
+            temperature=0.3
+        )
+        
+        result_text = response.choices[0].message.content
+        # Extract JSON from markdown code blocks if present
+        if "```json" in result_text:
+            result_text = result_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in result_text:
+            result_text = result_text.split("```")[1].split("```")[0].strip()
+        
+        return json.loads(result_text)
+    except Exception as e:
+        st.error(f"Error in AI evaluation: {str(e)}")
+        return {"overall_score": 0, "requirements": [], "recommendations": []}
+
+
+def generate_suggestions(requirement: Dict) -> str:
+    """Stage 2: Generate improvement suggestions for partial items"""
+    
+    suggestion_prompt = f"""You are a regulatory compliance advisor. A FinTech startup has PARTIALLY met this QCB requirement:
+
+Requirement: {requirement['requirement']}
+Category: {requirement['category']}
+Current Status: {requirement['details']}
+Key Quote from Document: {requirement.get('key_quote', 'N/A')}
+
+Provide a concise, actionable suggestion (2-3 sentences) on how they can improve their documentation to fully meet this requirement."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "user", "content": suggestion_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=150
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        st.error(f"Error generating suggestion: {str(e)}")
+        return "Unable to generate suggestion at this time."
+
+
+def map_resources(requirement_id: str) -> List[Dict]:
+    """Map resources to a specific requirement"""
+    matched = []
+    for resource in RESOURCE_MAPPING:
+        if requirement_id in resource.get("linked_rule_ids", []):
+            matched.append(resource)
+    return matched
+
+
+def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_category: str) -> bytes:
+    """Add colored annotations to original PDF based on findings"""
+    try:
+        pdf_document = fitz.open(stream=original_pdf_bytes, filetype="pdf")
+        
+        # Filter requirements for this document category
+        relevant_reqs = [r for r in requirements if r["id"] in CATEGORY_MAP.get(doc_category, [])]
+        
+        for req in relevant_reqs:
+            if req["status"] == "compliant":
+                continue  # Skip compliant items for cleaner output
+            
+            key_quote = req.get("key_quote", "")
+            if not key_quote:
+                continue
+            
+            # Search for the quote in the PDF
+            for page_num in range(pdf_document.page_count):
+                page = pdf_document[page_num]
+                text_instances = page.search_for(key_quote[:50])  # Search for first 50 chars
+                
+                if text_instances:
+                    rect = text_instances[0]  # Use first occurrence
+                    
+                    # Choose color based on status
+                    if req["status"] == "partial":
+                        color = (1, 1, 0)  # Yellow
+                        comment = f"⚠️ {req['requirement']}\n\nSuggestion: {req.get('suggestion', 'Needs improvement')}"
+                    else:  # missing
+                        color = (1, 0, 0)  # Red
+                        comment = f"❌ {req['requirement']}\n\nGap: {req['details']}"
+                    
+                    # Add highlight annotation
+                    highlight = page.add_highlight_annot(rect)
+                    highlight.set_colors(stroke=color)
+                    highlight.set_info(content=comment)
+                    highlight.update()
+                    break
+        
+        # Save modified PDF to bytes
+        output_bytes = pdf_document.write()
+        pdf_document.close()
+        return output_bytes
+    except Exception as e:
+        st.error(f"Error annotating PDF: {str(e)}")
+        return original_pdf_bytes
+
+
+def generate_summary_pdf(score: int, requirements: List[Dict], recommendations: List[str]) -> bytes:
+    """Generate a professional summary report PDF"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.75*inch, bottomMargin=0.75*inch)
+    
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Title'],
+        fontSize=24,
+        textColor=HexColor('#1a1a4d'),
+        spaceAfter=30
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=14,
+        textColor=HexColor('#1a1a4d'),
+        spaceAfter=12,
+        spaceBefore=20
+    )
+    
+    story = []
+    
+    # Title
+    story.append(Paragraph("QCB Compliance Readiness Report", title_style))
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Score
+    score_color = HexColor('#22c55e') if score >= 70 else HexColor('#eab308') if score >= 40 else HexColor('#ef4444')
+    score_style = ParagraphStyle('Score', parent=styles['Normal'], fontSize=18, textColor=score_color, spaceAfter=20)
+    story.append(Paragraph(f"Overall Readiness Score: <b>{score}%</b>", score_style))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Group requirements by category
+    categories = {}
+    for req in requirements:
+        cat = req.get("category", "Other")
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append(req)
+    
+    # Requirements by category
+    story.append(Paragraph("Detailed Compliance Assessment", heading_style))
+    
+    for category, reqs in categories.items():
+        story.append(Paragraph(f"<b>{category.replace('_', ' ').title()}</b>", styles['Heading3']))
+        
+        for req in reqs:
+            # Status symbol
+            if req["status"] == "compliant":
+                symbol = "✅"
+                color = HexColor('#22c55e')
+            elif req["status"] == "partial":
+                symbol = "⚠️"
+                color = HexColor('#eab308')
+            else:
+                symbol = "❌"
+                color = HexColor('#ef4444')
+            
+            req_style = ParagraphStyle('Req', parent=styles['Normal'], textColor=color, leftIndent=20)
+            story.append(Paragraph(f"{symbol} <b>{req['requirement']}</b>", req_style))
+            story.append(Paragraph(f"<i>Status: {req['status'].title()}</i>", styles['Normal']))
+            story.append(Paragraph(f"Reasoning: {req['details']}", styles['Normal']))
+            
+            if req.get('suggestion'):
+                story.append(Paragraph(f"<b>Improvement Suggestion:</b> {req['suggestion']}", styles['Normal']))
+            
+            if req.get('resources'):
+                story.append(Paragraph("<b>Recommended Resources:</b>", styles['Normal']))
+                for resource in req['resources']:
+                    story.append(Paragraph(f"• {resource['name']} ({resource['type']}) - {resource['contact']}", styles['Normal']))
+            
+            story.append(Spacer(1, 0.15*inch))
+    
+    # General Recommendations
+    if recommendations:
+        story.append(PageBreak())
+        story.append(Paragraph("Key Recommendations", heading_style))
+        for i, rec in enumerate(recommendations, 1):
+            story.append(Paragraph(f"{i}. {rec}", styles['Normal']))
+            story.append(Spacer(1, 0.1*inch))
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.read()
+
+
+def main():
+    st.set_page_config(
+        page_title="QCB Regulatory Navigator",
+        page_icon="📋",
+        layout="wide"
+    )
+    
+    st.title("🏦 QCB Regulatory Navigator & Readiness Evaluator")
+    st.markdown("**Upload your 3 core documents for comprehensive compliance evaluation**")
+    
+    st.divider()
+    
+    # File uploaders
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.subheader("📄 Business Plan")
+        business_plan_file = st.file_uploader(
+            "Upload Business Plan PDF",
+            type=["pdf"],
+            key="business_plan",
+            help="Your startup's business plan document"
+        )
+    
+    with col2:
+        st.subheader("🔒 Compliance Policy")
+        compliance_policy_file = st.file_uploader(
+            "Upload Internal Compliance Policy PDF",
+            type=["pdf"],
+            key="compliance_policy",
+            help="Your AML/CFT and security policies"
+        )
+    
+    with col3:
+        st.subheader("⚖️ Legal Structure")
+        legal_structure_file = st.file_uploader(
+            "Upload Legal Structure Document PDF",
+            type=["pdf"],
+            key="legal_structure",
+            help="Your articles of association and corporate structure"
+        )
+    
+    st.divider()
+    
+    # Evaluate button
+    if st.button("🚀 Evaluate Compliance", type="primary", use_container_width=True):
+        if not all([business_plan_file, compliance_policy_file, legal_structure_file]):
+            st.error("⚠️ Please upload all three PDF documents before proceeding.")
+            return
+        
+        with st.spinner("🔍 Processing documents and analyzing compliance..."):
+            # Extract text
+            st.info("📖 Extracting text from PDFs...")
+            business_plan_text = extract_text_from_pdf(business_plan_file)
+            compliance_policy_text = extract_text_from_pdf(compliance_policy_file)
+            legal_structure_text = extract_text_from_pdf(legal_structure_file)
+            
+            # Reset file pointers for later use
+            business_plan_file.seek(0)
+            compliance_policy_file.seek(0)
+            legal_structure_file.seek(0)
+            
+            # Stage 1: Evaluation
+            st.info("🤖 AI Analysis Stage 1: Evaluating requirements...")
+            evaluation_result = evaluate_compliance(
+                business_plan_text,
+                compliance_policy_text,
+                legal_structure_text
+            )
+            
+            # Stage 2: Generate suggestions for partial items
+            st.info("💡 AI Analysis Stage 2: Generating improvement suggestions...")
+            for req in evaluation_result["requirements"]:
+                if req["status"] == "partial":
+                    req["suggestion"] = generate_suggestions(req)
+                    req["resources"] = map_resources(req["id"])
+                elif req["status"] == "missing":
+                    req["resources"] = map_resources(req["id"])
+            
+            # Generate PDFs
+            st.info("📝 Generating downloadable reports...")
+            
+            # Annotated PDFs
+            business_plan_bytes = business_plan_file.read()
+            compliance_policy_bytes = compliance_policy_file.read()
+            legal_structure_bytes = legal_structure_file.read()
+            
+            annotated_bp = annotate_pdf(business_plan_bytes, evaluation_result["requirements"], "business_plan")
+            annotated_cp = annotate_pdf(compliance_policy_bytes, evaluation_result["requirements"], "compliance_policy")
+            annotated_ls = annotate_pdf(legal_structure_bytes, evaluation_result["requirements"], "legal_structure")
+            
+            # Summary PDF
+            summary_pdf = generate_summary_pdf(
+                evaluation_result["overall_score"],
+                evaluation_result["requirements"],
+                evaluation_result["recommendations"]
+            )
+            
+            st.success("✅ Analysis complete! Download your reports below.")
+            
+            # Display score
+            score = evaluation_result["overall_score"]
+            score_color = "🟢" if score >= 70 else "🟡" if score >= 40 else "🔴"
+            st.metric("Overall Readiness Score", f"{score}%", delta=f"{score_color}")
+            
+            st.divider()
+            
+            # Download buttons
+            st.subheader("📥 Download Reports")
+            
+            col1, col2 = st.columns(2)
+            col3, col4 = st.columns(2)
+            
+            with col1:
+                st.download_button(
+                    label="📄 Download Marked-up Business Plan",
+                    data=annotated_bp,
+                    file_name="annotated_business_plan.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            
+            with col2:
+                st.download_button(
+                    label="🔒 Download Marked-up Compliance Policy",
+                    data=annotated_cp,
+                    file_name="annotated_compliance_policy.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            
+            with col3:
+                st.download_button(
+                    label="⚖️ Download Marked-up Legal Structure",
+                    data=annotated_ls,
+                    file_name="annotated_legal_structure.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            
+            with col4:
+                st.download_button(
+                    label="📊 Download Summary Report",
+                    data=summary_pdf,
+                    file_name="compliance_summary_report.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary"
+                )
+
+
+if __name__ == "__main__":
+    main()

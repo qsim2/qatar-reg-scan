@@ -1,0 +1,44 @@
+[
+  {
+    "name": "Qatar FinTech Hub - Licensing Advisory Program",
+    "type": "Government Program",
+    "contact": "licensing@qfh.gov.qa | +974 4000 1000",
+    "linked_rule_ids": ["licensing_category", "minimum_capital", "key_personnel"]
+  },
+  {
+    "name": "Al-Madina Compliance Consultancy",
+    "type": "Private Consultant",
+    "contact": "info@almadina-compliance.qa | +974 4000 2000",
+    "linked_rule_ids": ["aml_policy", "compliance_officer", "cdd_procedures", "transaction_monitoring", "sar_filing"]
+  },
+  {
+    "name": "Qatar Central Bank - FinTech Support Unit",
+    "type": "Regulatory Authority",
+    "contact": "fintech@qcb.gov.qa",
+    "linked_rule_ids": ["licensing_category", "minimum_capital", "aml_policy", "data_residency"]
+  },
+  {
+    "name": "Doha Cybersecurity & Data Sovereignty Experts",
+    "type": "Technical Service Provider",
+    "contact": "contact@doha-cyber.com | +974 4000 3000",
+    "linked_rule_ids": ["data_residency"]
+  },
+  {
+    "name": "Gulf DR & Business Continuity Services",
+    "type": "Technical Service Provider",
+    "contact": "info@gulfdr.com | +974 4000 4000",
+    "linked_rule_ids": ["business_continuity"]
+  },
+  {
+    "name": "Lusail Legal & Corporate Affairs",
+    "type": "Law Firm",
+    "contact": "legal@lusail-law.qa | +974 4000 5000",
+    "linked_rule_ids": ["corporate_structure", "key_personnel"]
+  },
+  {
+    "name": "Qatar Financial Intelligence Unit (QFIU)",
+    "type": "Regulatory Authority",
+    "contact": "sar@qfiu.gov.qa",
+    "linked_rule_ids": ["aml_policy", "sar_filing", "transaction_monitoring"]
+  }
+]

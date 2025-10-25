@@ -1,0 +1,79 @@
+[
+  {
+    "id": "licensing_category",
+    "category": "Licensing Requirements",
+    "requirement": "Licensing Category Declaration",
+    "description": "Article 1.1: The applicant must clearly state which licensing category they are applying for (PSP or P2P Marketplace Lending).",
+    "input_category": "business_plan"
+  },
+  {
+    "id": "minimum_capital",
+    "category": "Capital Adequacy",
+    "requirement": "Minimum Capital Requirements",
+    "description": "Article 1.2: Payment Service Providers require minimum paid-up capital of QAR 5,000,000. P2P Lending platforms require QAR 7,500,000.",
+    "input_category": "business_plan"
+  },
+  {
+    "id": "key_personnel",
+    "category": "Governance & Personnel",
+    "requirement": "Fit and Proper Requirements",
+    "description": "Article 2.1: CVs and police clearance certificates must be submitted for all Board Members, CEO, and the designated Compliance Officer.",
+    "input_category": "legal_structure"
+  },
+  {
+    "id": "corporate_structure",
+    "category": "Corporate Structure",
+    "requirement": "Legal Entity Registration",
+    "description": "Article 2.2: The entity must be registered in the State of Qatar. Final Articles of Association are required.",
+    "input_category": "legal_structure"
+  },
+  {
+    "id": "data_residency",
+    "category": "Data Security & Residency",
+    "requirement": "Data Localization Requirement",
+    "description": "Article 3.1: All customer PII and transaction data must be stored on servers physically located within the State of Qatar.",
+    "input_category": "legal_structure"
+  },
+  {
+    "id": "aml_policy",
+    "category": "AML/CFT Compliance",
+    "requirement": "Comprehensive AML/CFT Program",
+    "description": "Article 4.1: Must include a board-approved AML/CFT policy with robust procedures.",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "compliance_officer",
+    "category": "AML/CFT Compliance",
+    "requirement": "Designated Compliance Officer",
+    "description": "Article 4.1: A qualified, dedicated Compliance Officer must be appointed.",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "cdd_procedures",
+    "category": "AML/CFT Compliance",
+    "requirement": "Customer Due Diligence (CDD/EDD)",
+    "description": "Article 4.1: Comprehensive CDD and Enhanced Due Diligence (EDD) procedures must be documented and implemented.",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "transaction_monitoring",
+    "category": "AML/CFT Compliance",
+    "requirement": "Transaction Monitoring System",
+    "description": "Article 4.1: A robust, real-time transaction monitoring system for detecting suspicious activities is required.",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "sar_filing",
+    "category": "AML/CFT Compliance",
+    "requirement": "Suspicious Activity Reporting (SAR)",
+    "description": "Article 4.1: Clear procedures and systems for filing Suspicious Activity Reports with QFIU must be established.",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "business_continuity",
+    "category": "Business Continuity & Disaster Recovery",
+    "requirement": "Comprehensive BCP and Tested DR Plan",
+    "description": "Article 5.1: A comprehensive Business Continuity Plan (BCP) and a fully tested Disaster Recovery (DR) plan with defined RTO/RPO are mandatory.",
+    "input_category": "business_plan"
+  }
+]
