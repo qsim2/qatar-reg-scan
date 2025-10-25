@@ -492,38 +492,36 @@ def main():
         layout="wide"
     )
     
-    # Custom CSS for Qatar-themed background
-    st.markdown("""
-    <style>
-    .stApp {
-        background: linear-gradient(135deg, #F5F5DC 0%, #FFFFFF 50%, #F5F5DC 100%);
-        background-attachment: fixed;
-    }
+    # Load and encode background image
+    try:
+        with open("qatar_background.jpg", "rb") as img_file:
+            img_data = base64.b64encode(img_file.read()).decode()
+            bg_image = f"data:image/jpeg;base64,{img_data}"
+    except:
+        bg_image = ""  # Fallback if image not found
     
-    /* Optional: Add a subtle pattern overlay */
-    .stApp::before {
+    # Custom CSS for Qatar-themed background
+    st.markdown(f"""
+    <style>
+    .stApp {{
+        background-image: url('{bg_image}');
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }}
+    
+    /* Add subtle overlay for better text readability */
+    .stApp::before {{
         content: "";
         position: fixed;
         top: 0;
         left: 0;
         width: 100%;
         height: 100%;
-        opacity: 0.03;
-        background-image: 
-            repeating-linear-gradient(45deg, #8B1538 0px, #8B1538 2px, transparent 2px, transparent 10px),
-            repeating-linear-gradient(-45deg, #8B1538 0px, #8B1538 2px, transparent 2px, transparent 10px);
+        background-color: rgba(0, 0, 0, 0.1);
         pointer-events: none;
         z-index: 0;
-    }
-    
-    /* If you want to use an actual background image, uncomment and add your image URL:
-    .stApp {
-        background-image: url('your-image-url-here.jpg');
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }
-    */
+    }}
     </style>
     """, unsafe_allow_html=True)
     
