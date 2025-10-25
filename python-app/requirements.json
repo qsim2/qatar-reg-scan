@@ -117,5 +117,61 @@
     "requirement": "Annual External Audit",
     "description": "Article 2.2.2 (QCB-FINTECH-2025-003): An annual external audit of all technology systems and compliance policies is mandatory.",
     "input_category": "business_plan"
+  },
+  {
+    "id": "data_privacy_officer",
+    "category": "Governance & Personnel",
+    "requirement": "Data Privacy Officer Appointment",
+    "description": "Article 4.4 (QCB-DH): A Financial Institution must appoint a Data Privacy Officer (DPO) who possesses the necessary knowledge and experience in data privacy, notifying QCB of the appointed DPO and submit the required Fit and Proper Form.",
+    "input_category": "legal_structure"
+  },
+  {
+    "id": "privacy_policy",
+    "category": "Data Security & Privacy",
+    "requirement": "External Privacy Policy Publication",
+    "description": "Article 5.4 (QCB-DH): A Financial Institution must publish its External Privacy Policy statement on externally hosted channels, informing customers of their rights and how their data will be collected, accessed, processed, shared and retained.",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "data_classification",
+    "category": "Data Security & Privacy",
+    "requirement": "Sensitive Data Classification",
+    "description": "Article 7.3 (QCB-DH): A Financial Institution must classify and manage Sensitive Personal Information (SPI) and Sensitive Financial Information (SFI) as per the highest, most strict classification available.",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "primary_data_environment",
+    "category": "Data Security & Residency",
+    "requirement": "Primary Data Environment Location",
+    "description": "Article 7.6 (QCB-DH): A Financial Institution must ensure its primary environment (main data storage and processing) for PII, SPI and SFI resides within the State of Qatar. Any mention of foreign cloud providers (AWS, Azure, GCP) or international regions (Ireland, Singapore, US) for primary data storage is non-compliant.",
+    "input_category": "legal_structure"
+  },
+  {
+    "id": "third_party_consent",
+    "category": "Data Security & Privacy",
+    "requirement": "Third Party Data Sharing Consent",
+    "description": "Article 9.6 (QCB-DH): A Financial Institution must collect consent from customers prior to sharing their information with a Third Party, unless shared for legal, regulatory purposes, or contract fulfilment.",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "data_retention",
+    "category": "Data Security & Privacy",
+    "requirement": "Data Retention Requirements",
+    "description": "Article 11.3 (QCB-DH): A Financial Institution must retain data per minimum periods: Sensitive Financial Information (SFI) - 10 years, Personal Data/PII/SPI - 10 years, Technical Information - 1 year.",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "customer_data_rights",
+    "category": "Data Security & Privacy",
+    "requirement": "Customer Data Access and Deletion Rights",
+    "description": "Article 14.4 (QCB-DH): A Financial Institution must establish procedures ensuring customers can: confirm if data is processed, access data copy in machine-readable format, request correction, request processing restriction, request deletion (aligned with retention requirements).",
+    "input_category": "compliance_policy"
+  },
+  {
+    "id": "foreign_data_transfer",
+    "category": "Data Security & Residency",
+    "requirement": "QCB Approval Required for Foreign Data Transfer",
+    "description": "Article 15.1 (QCB-DH): A Financial Institution must not store or transfer Personal Data, PII, SPI and SFI to a foreign jurisdiction unless it has received approval from QCB. Any mention of foreign cloud storage without explicit QCB approval is non-compliant.",
+    "input_category": "compliance_policy"
   }
 ]
