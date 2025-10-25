@@ -334,6 +334,10 @@ def main():
     
     st.divider()
     
+    # Initialize session state
+    if 'results' not in st.session_state:
+        st.session_state.results = None
+    
     # Evaluate button
     if st.button("🚀 Evaluate Compliance", type="primary", use_container_width=True):
         if not all([business_plan_file, compliance_policy_file, legal_structure_file]):
@@ -341,16 +345,20 @@ def main():
             return
         
         with st.spinner("🔍 Processing documents and analyzing compliance..."):
-            # Extract text
-            st.info("📖 Extracting text from PDFs...")
-            business_plan_text = extract_text_from_pdf(business_plan_file)
-            compliance_policy_text = extract_text_from_pdf(compliance_policy_file)
-            legal_structure_text = extract_text_from_pdf(legal_structure_file)
+            # Read file bytes first
+            st.info("📖 Reading PDF files...")
+            business_plan_bytes = business_plan_file.read()
+            compliance_policy_bytes = compliance_policy_file.read()
+            legal_structure_bytes = legal_structure_file.read()
             
-            # Reset file pointers for later use
+            # Extract text from bytes
             business_plan_file.seek(0)
             compliance_policy_file.seek(0)
             legal_structure_file.seek(0)
+            
+            business_plan_text = extract_text_from_pdf(business_plan_file)
+            compliance_policy_text = extract_text_from_pdf(compliance_policy_file)
+            legal_structure_text = extract_text_from_pdf(legal_structure_file)
             
             # Stage 1: Evaluation
             st.info("🤖 AI Analysis Stage 1: Evaluating requirements...")
@@ -372,11 +380,7 @@ def main():
             # Generate PDFs
             st.info("📝 Generating downloadable reports...")
             
-            # Annotated PDFs
-            business_plan_bytes = business_plan_file.read()
-            compliance_policy_bytes = compliance_policy_file.read()
-            legal_structure_bytes = legal_structure_file.read()
-            
+            # Annotated PDFs using the bytes we already read
             annotated_bp = annotate_pdf(business_plan_bytes, evaluation_result["requirements"], "business_plan")
             annotated_cp = annotate_pdf(compliance_policy_bytes, evaluation_result["requirements"], "compliance_policy")
             annotated_ls = annotate_pdf(legal_structure_bytes, evaluation_result["requirements"], "legal_structure")
@@ -388,57 +392,68 @@ def main():
                 evaluation_result["recommendations"]
             )
             
+            # Store results in session state
+            st.session_state.results = {
+                'score': evaluation_result["overall_score"],
+                'annotated_bp': annotated_bp,
+                'annotated_cp': annotated_cp,
+                'annotated_ls': annotated_ls,
+                'summary_pdf': summary_pdf
+            }
+            
             st.success("✅ Analysis complete! Download your reports below.")
-            
-            # Display score
-            score = evaluation_result["overall_score"]
-            score_color = "🟢" if score >= 70 else "🟡" if score >= 40 else "🔴"
-            st.metric("Overall Readiness Score", f"{score}%", delta=f"{score_color}")
-            
-            st.divider()
-            
-            # Download buttons
-            st.subheader("📥 Download Reports")
-            
-            col1, col2 = st.columns(2)
-            col3, col4 = st.columns(2)
-            
-            with col1:
-                st.download_button(
-                    label="📄 Download Marked-up Business Plan",
-                    data=annotated_bp,
-                    file_name="annotated_business_plan.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            
-            with col2:
-                st.download_button(
-                    label="🔒 Download Marked-up Compliance Policy",
-                    data=annotated_cp,
-                    file_name="annotated_compliance_policy.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            
-            with col3:
-                st.download_button(
-                    label="⚖️ Download Marked-up Legal Structure",
-                    data=annotated_ls,
-                    file_name="annotated_legal_structure.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            
-            with col4:
-                st.download_button(
-                    label="📊 Download Summary Report",
-                    data=summary_pdf,
-                    file_name="compliance_summary_report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    type="primary"
-                )
+    
+    # Display results if available
+    if st.session_state.results:
+        # Display score
+        score = st.session_state.results['score']
+        score_color = "🟢" if score >= 70 else "🟡" if score >= 40 else "🔴"
+        st.metric("Overall Readiness Score", f"{score}%", delta=f"{score_color}")
+        
+        st.divider()
+        
+        # Download buttons
+        st.subheader("📥 Download Reports")
+        
+        col1, col2 = st.columns(2)
+        col3, col4 = st.columns(2)
+        
+        with col1:
+            st.download_button(
+                label="📄 Download Marked-up Business Plan",
+                data=st.session_state.results['annotated_bp'],
+                file_name="annotated_business_plan.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        
+        with col2:
+            st.download_button(
+                label="🔒 Download Marked-up Compliance Policy",
+                data=st.session_state.results['annotated_cp'],
+                file_name="annotated_compliance_policy.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        
+        with col3:
+            st.download_button(
+                label="⚖️ Download Marked-up Legal Structure",
+                data=st.session_state.results['annotated_ls'],
+                file_name="annotated_legal_structure.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+        
+        with col4:
+            st.download_button(
+                label="📊 Download Summary Report",
+                data=st.session_state.results['summary_pdf'],
+                file_name="compliance_summary_report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary"
+            )
 
 
 if __name__ == "__main__":
