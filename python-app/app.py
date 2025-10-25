@@ -159,55 +159,18 @@ def _normalize_text(s: str) -> str:
         return s or ""
 
 
-def _find_rect_for_text(page, quote: str):
-    """Robustly locate a quote on a PDF page and return a well-fitted rect.
-    Strategy:
+def _find_rects_for_text(page, quote: str):
+    """Find precise rectangles for a quote on a PDF page.
+    Strategy order:
     1) Exact phrase (case-insensitive, de-hyphenate)
     2) Normalized phrase
     3) Shorter word-based snippets (from the start of the quote)
 
-    When multiple rectangles are returned, we group nearby lines and pick the
-    largest contiguous group to avoid over-wide, misaligned highlights (common
-    in multi-column layouts).
+    Returns a list of fitz.Rect covering only the matched spans, without merging
+    into a single large block.
     """
     if not quote or len(quote) < 5:
-        return None
-
-    def _merge_and_choose(rects):
-        """Group close-by rects vertically and choose the largest contiguous group."""
-        if not rects:
-            return None
-        try:
-            rects_sorted = sorted(rects, key=lambda r: (r.y0, r.x0))
-            y_thresh = 6  # pts: treat rectangles within this vertical gap as same block
-            groups = []
-            current = [rects_sorted[0]]
-            for r in rects_sorted[1:]:
-                prev = current[-1]
-                if r.y0 <= prev.y1 + y_thresh:
-                    current.append(r)
-                else:
-                    groups.append(current)
-                    current = [r]
-            groups.append(current)
-
-            merged = []
-            for g in groups:
-                x0 = min(rr.x0 for rr in g)
-                y0 = min(rr.y0 for rr in g)
-                x1 = max(rr.x1 for rr in g)
-                y1 = max(rr.y1 for rr in g)
-                merged.append(fitz.Rect(x0, y0, x1, y1))
-
-            # Choose the largest area block which usually best fits the phrase
-            def area(R):
-                return (R.x1 - R.x0) * (R.y1 - R.y0)
-
-            best = max(merged, key=area)
-            return best
-        except Exception:
-            # Fallback: first rect
-            return rects[0]
+        return []
 
     # Prepare robust search flags
     flags = getattr(fitz, "TEXT_IGNORECASE", 0) | getattr(fitz, "TEXT_DEHYPHENATE", 0)
@@ -216,7 +179,7 @@ def _find_rect_for_text(page, quote: str):
     try:
         rects = page.search_for(quote, flags=flags)
         if rects:
-            return _merge_and_choose(rects)
+            return rects
     except Exception:
         pass
 
@@ -226,7 +189,7 @@ def _find_rect_for_text(page, quote: str):
         try:
             rects = page.search_for(norm, flags=flags)
             if rects:
-                return _merge_and_choose(rects)
+                return rects
         except Exception:
             pass
 
@@ -239,11 +202,11 @@ def _find_rect_for_text(page, quote: str):
         try:
             rects = page.search_for(snippet, flags=flags)
             if rects:
-                return _merge_and_choose(rects)
+                return rects
         except Exception:
             continue
 
-    return None
+    return []
 
 
 def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_category: str) -> bytes:
@@ -293,12 +256,13 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
             if key_quote:
                 for page_num in range(pdf_document.page_count):
                     page = pdf_document[page_num]
-                    rect = _find_rect_for_text(page, key_quote)
-                    if rect:
-                        highlight = page.add_highlight_annot(rect)
-                        highlight.set_colors(stroke=color)  # highlight uses stroke color
-                        highlight.set_info(content=comment)
-                        highlight.update()
+                    rects = _find_rects_for_text(page, key_quote)
+                    if rects:
+                        for r in rects:
+                            hl = page.add_highlight_annot(r)
+                            hl.set_colors(stroke=color)  # highlight uses stroke color
+                            hl.set_info(content=comment)
+                            hl.update()
                         found = True
                         break
 
@@ -307,16 +271,17 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
                 phrases = fallback_phrases.get(req.get("id", ""), [])
                 for page_num in range(pdf_document.page_count):
                     page = pdf_document[page_num]
-                    hit = None
+                    hit_rects = []
                     for phrase in phrases:
-                        hit = _find_rect_for_text(page, phrase)
-                        if hit:
+                        hit_rects = _find_rects_for_text(page, phrase)
+                        if hit_rects:
                             break
-                    if hit:
-                        highlight = page.add_highlight_annot(hit)
-                        highlight.set_colors(stroke=color)
-                        highlight.set_info(content=comment)
-                        highlight.update()
+                    if hit_rects:
+                        for r in hit_rects:
+                            hl = page.add_highlight_annot(r)
+                            hl.set_colors(stroke=color)
+                            hl.set_info(content=comment)
+                            hl.update()
                         found = True
                         break
 
