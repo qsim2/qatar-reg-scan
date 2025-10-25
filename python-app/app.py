@@ -252,7 +252,7 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
             found = False
 
             # First attempt: search using the key_quote with robust matching (only if meaningful)
-            if key_quote and len(key_quote.split()) >= 6:
+            if key_quote and len(key_quote.split()) >= 3:
                 for page_num in range(pdf_document.page_count):
                     page = pdf_document[page_num]
                     rects = _find_rects_for_text(page, key_quote)
