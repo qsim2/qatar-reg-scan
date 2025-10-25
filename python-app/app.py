@@ -257,17 +257,25 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
 
         # Simple fallback phrases by requirement id (used if key_quote can't be located)
         fallback_phrases = {
-            "aml_policy": ["AML policy", "board-approved AML"],
+            "aml_policy": ["AML policy", "board-approved AML", "Anti-Money Laundering"],
             "compliance_officer": ["Compliance Officer"],
-            "cdd_procedures": ["Customer Due Diligence", "CDD"],
-            "transaction_monitoring": ["Transaction Monitoring"],
+            "cdd_enhanced": ["Customer Due Diligence", "CDD", "QAR 10,000"],
+            "source_of_funds": ["source of funds", "source of wealth", "QAR 50,000"],
+            "kyc_documentation": ["government-issued identification", "KYC", "Proof of Residency"],
+            "transaction_monitoring": ["Transaction Monitoring", "transaction monitoring system"],
+            "str_reporting": ["Suspicious Transaction Report", "STR", "Suspicious Activity"],
             "sar_filing": ["Suspicious Activity Reporting", "SAR"],
-            "data_residency": ["data stored", "servers", "State of Qatar"],
+            "data_residency": ["AWS", "cloud infrastructure", "servers", "hosted", "data storage", "Ireland", "Singapore"],
+            "data_consent": ["consent", "third-party service providers", "data sharing"],
             "business_continuity": ["Business Continuity", "Disaster Recovery", "RTO", "RPO"],
             "minimum_capital": ["capital", "QAR"],
-            "licensing_category": ["PSP", "P2P", "licensing"],
-            "key_personnel": ["Board", "CEO", "Compliance Officer"],
-            "corporate_structure": ["Articles of Association", "State of Qatar"]
+            "minimum_capital_psp": ["capital", "QAR 5,000,000", "Payment Service"],
+            "minimum_capital_p2p": ["capital", "QAR 7,500,000", "Marketplace Lending"],
+            "minimum_capital_wealth": ["capital", "QAR 4,000,000", "Digital Wealth"],
+            "licensing_category": ["PSP", "P2P", "licensing", "Category"],
+            "key_personnel": ["Board", "CEO", "Compliance Officer", "CVs", "police clearance"],
+            "corporate_structure": ["Articles of Association", "registered"],
+            "annual_audit": ["annual audit", "external audit", "technology systems"]
         }
 
         # We'll also keep track if we had to fallback to notes so we can stack them
@@ -322,12 +330,16 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
 
             # Final fallback: drop a sticky note on the first page so the user still sees the finding
             if not found and pdf_document.page_count > 0:
-                page0 = pdf_document[0]
-                note_point = fitz.Point(72, note_y_offset)
-                note = page0.add_text_annot(note_point, comment)
-                note.set_colors(stroke=color)
-                note.update()
-                note_y_offset += 36  # stack notes vertically
+                try:
+                    page0 = pdf_document[0]
+                    note_point = fitz.Point(72, note_y_offset)
+                    note = page0.add_text_annot(note_point, comment)
+                    note.set_colors(stroke=color)
+                    note.update()
+                    note_y_offset += 36  # stack notes vertically
+                except Exception as note_error:
+                    # If sticky note fails, just skip it silently to avoid breaking the whole process
+                    print(f"Could not add sticky note for {req.get('id')}: {note_error}")
 
         # Save modified PDF to bytes
         output_bytes = pdf_document.write()
