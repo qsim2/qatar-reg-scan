@@ -46,6 +46,7 @@ CATEGORY_MAP = {
         "transaction_monitoring",
         "str_reporting",
         "data_consent",
+        "data_residency",
         "compliance_officer"
     ],
     "legal_structure": [
@@ -84,6 +85,8 @@ Evaluate each requirement and classify as:
 - "compliant": Fully meets the requirement with comprehensive evidence
 - "partial": Partially meets the requirement but lacks detail or completeness
 - "missing": Does not address the requirement or fundamentally absent
+
+CRITICAL rule for data_residency: If any document mentions hosting on public cloud outside Qatar (e.g., AWS/Azure/GCP, regions like eu-west-1 or ap-southeast-1, Ireland, Singapore) without explicitly stating PII and transactional data are stored on servers physically located in Qatar, mark data_residency as "missing" or "partial" and include the quote about the external hosting.
 
 IMPORTANT: For each requirement, you MUST specify which document contains the relevant information by setting the "found_in_document" field to one of: "business_plan", "compliance_policy", or "legal_structure".
 
@@ -294,7 +297,7 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
             "transaction_monitoring": ["Transaction Monitoring", "transaction monitoring system"],
             "str_reporting": ["Suspicious Transaction Report", "STR", "Suspicious Activity"],
             "sar_filing": ["Suspicious Activity Reporting", "SAR"],
-            "data_residency": ["Amazon Web Services", "AWS", "Ireland", "Singapore", "globally distributed", "cloud infrastructure"],
+            "data_residency": ["Amazon Web Services", "AWS", "hosted on AWS", "AWS region", "eu-west-1", "ap-southeast-1", "Ireland", "Singapore", "CloudFront", "S3", "RDS", "Microsoft Azure", "Azure", "Google Cloud", "GCP", "outside Qatar", "Qatar data residency", "global CDN", "cloud infrastructure"],
             "data_consent": ["consent", "third-party service providers", "data sharing"],
             "business_continuity": ["Business Continuity", "Disaster Recovery", "RTO", "RPO"],
             "minimum_capital": ["capital", "QAR"],
