@@ -40,5 +40,17 @@
     "type": "Regulatory Authority",
     "contact": "sar@qfiu.gov.qa",
     "linked_rule_ids": ["aml_policy", "sar_filing", "transaction_monitoring"]
+  },
+  {
+    "name": "Qatari Fintech Landscape - Licensed Fintechs Database",
+    "type": "Market Intelligence",
+    "contact": "https://magnitt.com/reports/qatar",
+    "linked_rule_ids": ["licensing_category", "minimum_capital", "corporate_structure", "key_personnel"]
+  },
+  {
+    "name": "Magnitt Fintech Report (Regional)",
+    "type": "Market Research",
+    "contact": "https://magnitt.com/reports/qatar",
+    "linked_rule_ids": ["licensing_category", "minimum_capital", "corporate_structure"]
   }
 ]
