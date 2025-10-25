@@ -275,8 +275,8 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
     try:
         pdf_document = fitz.open(stream=original_pdf_bytes, filetype="pdf")
 
-        # Filter requirements for this document category
-        relevant_reqs = [r for r in requirements if r["id"] in CATEGORY_MAP.get(doc_category, [])]
+        # Search all requirements (partial/missing) regardless of category to capture cross-document issues
+        relevant_reqs = [r for r in requirements if r.get("status") in ("partial", "missing")]
 
         # Simple fallback phrases by requirement id (used if key_quote can't be located)
         fallback_phrases = {
