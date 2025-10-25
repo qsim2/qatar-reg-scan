@@ -272,17 +272,15 @@ def _find_rect_for_text(page, quote: str):
 
 def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_category: str) -> bytes:
     """Add colored annotations to original PDF based on findings.
-    Tries to highlight key quotes; if not found, drops a sticky note on page 1 as a fallback.
-    Only annotates requirements that should be found in THIS specific document."""
+    Highlights only when matching text is found in this specific document. No sticky note fallbacks."""
     try:
         pdf_document = fitz.open(stream=original_pdf_bytes, filetype="pdf")
 
         # Filter requirements for this document category
-        # Only include requirements where the AI found them in this document OR where they're expected to be
+        # Only include requirements expected for this document; annotate ONLY when text is found
         relevant_reqs = [
             r for r in requirements 
-            if r["id"] in CATEGORY_MAP.get(doc_category, []) 
-            and r.get("found_in_document", doc_category) == doc_category
+            if r["id"] in CATEGORY_MAP.get(doc_category, [])
         ]
 
         # Simple fallback phrases by requirement id (used if key_quote can't be located)
@@ -308,8 +306,7 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
             "annual_audit": ["annual audit", "external audit", "technology systems"]
         }
 
-        # We'll also keep track if we had to fallback to notes so we can stack them
-        note_y_offset = 72  # start 1 inch from top
+        # We'll no longer create sticky notes; only highlight when text is found
 
         for req in relevant_reqs:
             if req.get("status") == "compliant":
@@ -358,18 +355,7 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
                         found = True
                         break
 
-            # Final fallback: drop a sticky note on the first page so the user still sees the finding
-            if not found and pdf_document.page_count > 0:
-                try:
-                    page0 = pdf_document[0]
-                    note_point = fitz.Point(72, note_y_offset)
-                    note = page0.add_text_annot(note_point, comment)
-                    note.set_colors(stroke=color)
-                    note.update()
-                    note_y_offset += 36  # stack notes vertically
-                except Exception as note_error:
-                    # If sticky note fails, just skip it silently to avoid breaking the whole process
-                    print(f"Could not add sticky note for {req.get('id')}: {note_error}")
+            # Final fallback removed: we no longer add sticky notes; if no text is found, skip annotation for this requirement.
 
         # Save modified PDF to bytes
         output_bytes = pdf_document.write()
