@@ -160,40 +160,59 @@ def _normalize_text(s: str) -> str:
 
 
 def _find_rect_for_text(page, quote: str):
-    """Try multiple strategies to locate a quote on a PDF page and return the first rect."""
-    norm = _normalize_text(quote)
-    if not norm or len(norm) < 5:
+    """Try multiple strategies to locate a quote on a PDF page and return merged rect."""
+    if not quote or len(quote) < 5:
         return None
 
-    candidates: List[str] = []
-    # Try progressively smaller character windows from start / end / middle
-    for size in (120, 100, 80, 60, 50, 40, 30, 25):
-        if len(norm) > size:
-            candidates.append(norm[:size])
-    for size in (80, 60, 50, 40, 30):
-        if len(norm) > size:
-            candidates.append(norm[-size:])
-    mid = len(norm) // 2
-    candidates.append(norm[max(0, mid - 40): mid + 40])
+    # Try exact match first (case-insensitive)
+    try:
+        rects = page.search_for(quote, flags=fitz.TEXT_DEHYPHENATE)
+        if rects:
+            # Merge all rectangles if multi-line
+            if len(rects) > 1:
+                x0 = min(r.x0 for r in rects)
+                y0 = min(r.y0 for r in rects)
+                x1 = max(r.x1 for r in rects)
+                y1 = max(r.y1 for r in rects)
+                return fitz.Rect(x0, y0, x1, y1)
+            return rects[0]
+    except Exception:
+        pass
 
-    # Try word-based windows
-    words = norm.split()
-    for wlen in (12, 10, 8):
-        if len(words) >= wlen:
-            candidates.append(" ".join(words[:wlen]))
-
-    seen = set()
-    for cand in candidates:
-        cand = cand.strip()
-        if len(cand) < 15 or cand in seen:
-            continue
-        seen.add(cand)
+    # Try normalized version
+    norm = _normalize_text(quote)
+    if norm and len(norm) >= 10:
         try:
-            rects = page.search_for(cand)
+            rects = page.search_for(norm, flags=fitz.TEXT_DEHYPHENATE)
             if rects:
+                if len(rects) > 1:
+                    x0 = min(r.x0 for r in rects)
+                    y0 = min(r.y0 for r in rects)
+                    x1 = max(r.x1 for r in rects)
+                    y1 = max(r.y1 for r in rects)
+                    return fitz.Rect(x0, y0, x1, y1)
                 return rects[0]
         except Exception:
-            continue
+            pass
+
+    # Try word-based snippets from the start
+    words = quote.split()
+    for wlen in [min(15, len(words)), min(10, len(words)), min(6, len(words))]:
+        if wlen > 0:
+            snippet = " ".join(words[:wlen])
+            try:
+                rects = page.search_for(snippet, flags=fitz.TEXT_DEHYPHENATE)
+                if rects:
+                    if len(rects) > 1:
+                        x0 = min(r.x0 for r in rects)
+                        y0 = min(r.y0 for r in rects)
+                        x1 = max(r.x1 for r in rects)
+                        y1 = max(r.y1 for r in rects)
+                        return fitz.Rect(x0, y0, x1, y1)
+                    return rects[0]
+            except Exception:
+                continue
+
     return None
 
 
