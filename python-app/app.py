@@ -272,7 +272,7 @@ def _find_rect_for_text(page, quote: str):
 
 def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_category: str) -> bytes:
     """Add colored annotations to original PDF based on findings.
-    Highlights only when matching text is found in this specific document. No sticky note fallbacks."""
+    Highlights only when matching text is found in this specific document. If no match is found, an appended summary page lists unresolved items (no sticky notes)."""
     try:
         pdf_document = fitz.open(stream=original_pdf_bytes, filetype="pdf")
 
@@ -280,7 +280,7 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
         # Only include requirements expected for this document; annotate ONLY when text is found
         relevant_reqs = [
             r for r in requirements 
-            if r["id"] in CATEGORY_MAP.get(doc_category, [])
+            if (r.get("id") in CATEGORY_MAP.get(doc_category, []) or r.get("found_in_document") == doc_category)
         ]
 
         # Simple fallback phrases by requirement id (used if key_quote can't be located)
@@ -307,7 +307,7 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
         }
 
         # We'll no longer create sticky notes; only highlight when text is found
-
+        unresolved = []
         for req in relevant_reqs:
             if req.get("status") == "compliant":
                 continue  # Skip compliant items for cleaner output
@@ -355,7 +355,30 @@ def annotate_pdf(original_pdf_bytes: bytes, requirements: List[Dict], doc_catego
                         found = True
                         break
 
-            # Final fallback removed: we no longer add sticky notes; if no text is found, skip annotation for this requirement.
+            # If no text was found to highlight, collect for summary page
+            if not found and req.get("status") in ("partial", "missing"):
+                unresolved.append({
+                    "requirement": req.get("requirement", ""),
+                    "status": req.get("status", ""),
+                    "details": req.get("details", ""),
+                    "suggestion": req.get("suggestion", "")
+                })
+        # Append a summary page listing unresolved findings for this document
+        if unresolved:
+            try:
+                page = pdf_document.new_page(-1, width=595, height=842)  # A4 portrait
+                header = f"Unresolved findings for {doc_category.replace('_', ' ').title()}"
+                content = header + "\n\n"
+                for u in unresolved:
+                    symbol = "⚠️" if u.get("status") == "partial" else "❌"
+                    content += f"{symbol} {u.get('requirement','')}\n- {u.get('details','')}\n"
+                    if u.get("suggestion"):
+                        content += f"Suggestion: {u['suggestion']}\n"
+                    content += "\n"
+                rect = fitz.Rect(50, 50, 545, 792)
+                page.insert_textbox(rect, content, fontsize=11, fontname="helv", color=(0, 0, 0))
+            except Exception:
+                pass
 
         # Save modified PDF to bytes
         output_bytes = pdf_document.write()
